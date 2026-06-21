@@ -1,0 +1,28 @@
+{
+  "n1": 463,
+  "n2": 217,
+  "upper_trigram_num": 7,
+  "lower_trigram_num": 1,
+  "upper_trigram_name": "艮",
+  "lower_trigram_name": "乾",
+  "moving_line": 2,
+  "body_trigram_name": "艮",
+  "use_trigram_name": "乾",
+  "hexagram_name": "大畜",
+  "changed_hexagram_name": "賁",
+  "changed_use_trigram_name": "離",
+  "mutual_hexagram_name": "歸妹",
+  "mutual_upper_trigram_name": "震",
+  "mutual_lower_trigram_name": "兌",
+  "body_element": "土",
+  "use_element": "金",
+  "element_relation": "體生用",
+  "all_lines": [
+    1,
+    1,
+    1,
+    0,
+    0,
+    1
+  ]
+}

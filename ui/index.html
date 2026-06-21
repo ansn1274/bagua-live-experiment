@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>八卦 AI 實驗工作台</title>
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Bagua Web LLM Lab</p>
+      <h1>八卦與 AI 融合實驗工作台</h1>
+    </div>
+    <nav class="tabs" aria-label="主要頁籤">
+      <button class="tab active" data-tab="run">操作台</button>
+      <button class="tab" data-tab="data">資料</button>
+      <button class="tab" data-tab="analysis">統計</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="run" class="panel active">
+      <aside class="sidebar">
+        <section class="block">
+          <div class="block-title">
+            <h2>抽籤</h2>
+            <button id="newCaseBtn" class="primary">抽新案例</button>
+          </div>
+          <label>
+            類別
+            <select id="categorySelect"></select>
+          </label>
+          <label>
+            隨機元素
+            <textarea id="elementsInput" rows="4"></textarea>
+          </label>
+          <button id="randomSeedBtn" class="ghost full-width">重抽類別與元素</button>
+          <label>
+            取數方式
+            <select id="numberModeSelect">
+              <option value="llm">LLM 直覷取數</option>
+              <option value="front_paragraphs">故事前半兩段字數取數</option>
+            </select>
+          </label>
+          <label>
+            隨機卦對照數 K
+            <input id="kRandomInput" type="number" min="1" max="8" value="3">
+          </label>
+        </section>
+
+        <section class="block">
+          <div class="block-title">
+            <h2>案例</h2>
+            <div class="actions">
+              <button id="cloneCaseBtn" class="ghost">複製實驗</button>
+              <button id="deleteCaseBtn" class="ghost">刪除</button>
+            </div>
+          </div>
+          <select id="caseSelect"></select>
+          <div id="caseMeta" class="meta"></div>
+          <div id="caseBoard" class="case-board"></div>
+        </section>
+
+        <section class="block">
+          <h2>本步驟執行設定</h2>
+          <label>
+            Agent / 模型
+            <input id="agentInput" list="agentPresetList">
+            <datalist id="agentPresetList">
+              <option value="sonnet-4.6"></option>
+              <option value="gemini-3.1-pro"></option>
+              <option value="gpt-5.5"></option>
+              <option value="gpt-5.5 + RAG"></option>
+            </datalist>
+          </label>
+          <label>
+            RAG / 知識來源
+            <select id="ragModeSelect">
+              <option value="none">不使用 RAG</option>
+              <option value="standard-book">標準解卦書 RAG</option>
+              <option value="custom-rag">自訂 RAG</option>
+            </select>
+          </label>
+          <label>
+            實驗標籤
+            <input id="runLabelInput" placeholder="例如 baseline / rag-v1 / prompt-v2">
+          </label>
+          <label>
+            備註
+            <textarea id="runNoteInput" rows="3" placeholder="可記錄 agent 設定、溫度、RAG 版本等"></textarea>
+          </label>
+        </section>
+
+        <section class="block">
+          <h2>流程</h2>
+          <div id="stepList" class="step-list"></div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <div class="workspace-head">
+          <div>
+            <p id="stepKind" class="eyebrow">目前步驟</p>
+            <h2 id="currentStepTitle">尚未建立案例</h2>
+          </div>
+          <div class="actions">
+            <button id="prevPendingBtn" class="ghost">上一個未完成</button>
+            <button id="nextPendingBtn" class="ghost">下一個未完成</button>
+          </div>
+        </div>
+
+        <div id="branchHint" class="hint"></div>
+        <div id="runMetaPreview" class="run-meta-preview"></div>
+
+        <div class="prompt-grid">
+          <section class="prompt-box">
+            <div class="box-title">
+              <h3>System Prompt</h3>
+              <button class="copy-btn" data-copy="systemPrompt">複製</button>
+            </div>
+            <textarea id="systemPrompt" spellcheck="false"></textarea>
+          </section>
+
+          <section class="prompt-box">
+            <div class="box-title">
+              <h3>User Prompt</h3>
+              <button class="copy-btn" data-copy="userPrompt">複製</button>
+            </div>
+            <textarea id="userPrompt" spellcheck="false"></textarea>
+          </section>
+        </div>
+
+        <section class="response-box">
+          <div class="box-title">
+            <h3>貼上 Web LLM 回應</h3>
+            <div class="actions">
+              <button id="clearResponseBtn" class="ghost">清空</button>
+              <button id="saveResponseBtn" class="primary">儲存並前進</button>
+            </div>
+          </div>
+          <textarea id="responseInput" rows="8" spellcheck="false"></textarea>
+          <div id="saveStatus" class="status"></div>
+        </section>
+      </section>
+
+      <aside class="inspector">
+        <section class="block">
+          <h2>目前資料</h2>
+          <div id="caseSnapshot" class="snapshot"></div>
+        </section>
+        <section class="block">
+          <h2>卦象</h2>
+          <div id="hexagramView" class="hexagram-view muted">等待 Step 3 數字。</div>
+        </section>
+      </aside>
+    </section>
+
+    <section id="data" class="panel">
+      <div class="data-grid">
+        <section class="block">
+          <h2>匯出 / 匯入</h2>
+          <div class="actions wrap">
+            <button id="exportBtn" class="primary">下載實驗 JSON</button>
+            <label class="file-btn">
+              匯入 JSON
+              <input id="importInput" type="file" accept=".json">
+            </label>
+            <button id="resetAllBtn" class="danger">清空瀏覽器資料</button>
+          </div>
+          <p class="muted">資料會自動永久保存在此瀏覽器的 localStorage；每次儲存回應也會寫入目前 agent/RAG 設定。做完一批後可下載 JSON 留存或跨瀏覽器搬移。</p>
+        </section>
+
+        <section class="block">
+          <h2>目前案例 JSON</h2>
+          <textarea id="rawJson" spellcheck="false"></textarea>
+        </section>
+      </div>
+    </section>
+
+    <section id="analysis" class="panel">
+      <section class="block">
+        <div class="block-title">
+          <h2>統計與完成度</h2>
+          <button id="refreshAnalysisBtn" class="ghost">重新計算</button>
+        </div>
+        <div class="analysis-controls">
+          <label>
+            Agent 篩選
+            <select id="analysisAgentFilter"></select>
+          </label>
+          <label>
+            RAG 篩選
+            <select id="analysisRagFilter"></select>
+          </label>
+          <label>
+            指標
+            <select id="analysisMetricSelect">
+              <option value="all">全部</option>
+              <option value="layer1">Layer 1 體用/六候選</option>
+              <option value="layer2a">Layer 2A 後續辨認</option>
+              <option value="layer2b">Layer 2B Claim evidence</option>
+              <option value="progress">只看完成度</option>
+            </select>
+          </label>
+          <label class="check-row">
+            <input id="analysisIncludeIncomplete" type="checkbox" checked>
+            顯示未完成案例
+          </label>
+        </div>
+        <div id="analysisOutput" class="analysis-output"></div>
+      </section>
+    </section>
+  </main>
+
+  <template id="stepItemTemplate">
+    <button class="step-item">
+      <span class="step-state"></span>
+      <span class="step-name"></span>
+    </button>
+  </template>
+
+  <template id="caseCardTemplate">
+    <button class="case-card-btn">
+      <span class="case-card-title"></span>
+      <span class="case-card-meta"></span>
+      <span class="case-card-progress"></span>
+    </button>
+  </template>
+
+  <script src="index.js"></script>
+</body>
+</html>

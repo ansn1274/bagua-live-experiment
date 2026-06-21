@@ -1,0 +1,14 @@
+{
+  "case_id": "case_003",
+  "batch_id": "batch_20260615_184232",
+  "category": "健康",
+  "story_elements": [
+    "睡眠",
+    "檢查報告",
+    "飲食調整"
+  ],
+  "k_random": 3,
+  "created_at": "2026-06-15T10:42:32.515344+00:00",
+  "status": "initialized",
+  "steps_completed": []
+}

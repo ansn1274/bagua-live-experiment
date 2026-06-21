@@ -1,0 +1,84 @@
+{
+  "lookup": {
+    "乾": {
+      "乾": {"name": "乾", "king_wen": 1},
+      "兌": {"name": "履", "king_wen": 10},
+      "離": {"name": "同人", "king_wen": 13},
+      "震": {"name": "無妄", "king_wen": 25},
+      "巽": {"name": "姤", "king_wen": 44},
+      "坎": {"name": "訟", "king_wen": 6},
+      "艮": {"name": "遯", "king_wen": 33},
+      "坤": {"name": "否", "king_wen": 12}
+    },
+    "兌": {
+      "乾": {"name": "夬", "king_wen": 43},
+      "兌": {"name": "兌", "king_wen": 58},
+      "離": {"name": "革", "king_wen": 49},
+      "震": {"name": "隨", "king_wen": 17},
+      "巽": {"name": "大過", "king_wen": 28},
+      "坎": {"name": "困", "king_wen": 47},
+      "艮": {"name": "咸", "king_wen": 31},
+      "坤": {"name": "萃", "king_wen": 45}
+    },
+    "離": {
+      "乾": {"name": "大有", "king_wen": 14},
+      "兌": {"name": "睽", "king_wen": 38},
+      "離": {"name": "離", "king_wen": 30},
+      "震": {"name": "噬嗑", "king_wen": 21},
+      "巽": {"name": "鼎", "king_wen": 50},
+      "坎": {"name": "未濟", "king_wen": 64},
+      "艮": {"name": "旅", "king_wen": 56},
+      "坤": {"name": "晉", "king_wen": 35}
+    },
+    "震": {
+      "乾": {"name": "大壯", "king_wen": 34},
+      "兌": {"name": "歸妹", "king_wen": 54},
+      "離": {"name": "豐", "king_wen": 55},
+      "震": {"name": "震", "king_wen": 51},
+      "巽": {"name": "恆", "king_wen": 32},
+      "坎": {"name": "解", "king_wen": 40},
+      "艮": {"name": "小過", "king_wen": 62},
+      "坤": {"name": "豫", "king_wen": 16}
+    },
+    "巽": {
+      "乾": {"name": "小畜", "king_wen": 9},
+      "兌": {"name": "中孚", "king_wen": 61},
+      "離": {"name": "家人", "king_wen": 37},
+      "震": {"name": "益", "king_wen": 42},
+      "巽": {"name": "巽", "king_wen": 57},
+      "坎": {"name": "渙", "king_wen": 59},
+      "艮": {"name": "漸", "king_wen": 53},
+      "坤": {"name": "觀", "king_wen": 20}
+    },
+    "坎": {
+      "乾": {"name": "需", "king_wen": 5},
+      "兌": {"name": "節", "king_wen": 60},
+      "離": {"name": "既濟", "king_wen": 63},
+      "震": {"name": "屯", "king_wen": 3},
+      "巽": {"name": "井", "king_wen": 48},
+      "坎": {"name": "坎", "king_wen": 29},
+      "艮": {"name": "蹇", "king_wen": 39},
+      "坤": {"name": "比", "king_wen": 8}
+    },
+    "艮": {
+      "乾": {"name": "大畜", "king_wen": 26},
+      "兌": {"name": "損", "king_wen": 41},
+      "離": {"name": "賁", "king_wen": 22},
+      "震": {"name": "頤", "king_wen": 27},
+      "巽": {"name": "蠱", "king_wen": 18},
+      "坎": {"name": "蒙", "king_wen": 4},
+      "艮": {"name": "艮", "king_wen": 52},
+      "坤": {"name": "剝", "king_wen": 23}
+    },
+    "坤": {
+      "乾": {"name": "泰", "king_wen": 11},
+      "兌": {"name": "臨", "king_wen": 19},
+      "離": {"name": "明夷", "king_wen": 36},
+      "震": {"name": "復", "king_wen": 24},
+      "巽": {"name": "升", "king_wen": 46},
+      "坎": {"name": "師", "king_wen": 7},
+      "艮": {"name": "謙", "king_wen": 15},
+      "坤": {"name": "坤", "king_wen": 2}
+    }
+  }
+}
