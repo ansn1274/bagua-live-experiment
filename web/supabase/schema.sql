@@ -148,6 +148,7 @@ create table if not exists rating_summaries (
 );
 
 alter table events enable row level security;
+alter table app_state enable row level security;
 alter table rounds enable row level security;
 alter table participants enable row level security;
 alter table participant_progress enable row level security;
