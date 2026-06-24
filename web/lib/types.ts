@@ -29,6 +29,7 @@ export type EventState = {
   id: string;
   title: string;
   updatedAt: string;
+  activeSessionId: string;
   activeRoundId: string;
   currentStage: StageKey;
   allowedPages: StageKey[];
@@ -44,6 +45,30 @@ export type EventState = {
   wordCloudMaxEntriesPerParticipant: number;
   roundIndex: 1 | 2;
   practiceStep: number;
+};
+
+export type ExperimentSession = {
+  id: string;
+  title: string;
+  roundIds: [string, string];
+  createdAt: string;
+};
+
+export type StagePreset = {
+  id: string;
+  name: string;
+  currentStage: StageKey;
+  allowedPages: StageKey[];
+  showScreenPanel: boolean;
+  wordCloudEnabled: boolean;
+  wordCloudMaxEntriesPerParticipant: number;
+  sweepPlumDensity: number;
+  sweepPlumStdDev: number;
+  sweepLeafDensity: number;
+  sweepLeafStdDev: number;
+  quizQuestionSeconds: number;
+  practiceStep: number;
+  createdAt: string;
 };
 
 export type SweepVisualItem = {
@@ -184,8 +209,10 @@ export type WordCloudEntry = {
 
 export type ParsedStatement = {
   id: string;
-  aspect: string;
+  aspect?: string;
   text: string;
+  trace?: string;
+  hidden_trace?: string;
 };
 
 export type ParsedCard = {
@@ -193,6 +220,8 @@ export type ParsedCard = {
   hexagram_echo?: string;
   statements: ParsedStatement[];
   bonus_reading: string;
+  bonus_trace?: string;
+  hidden_trace?: string;
   caution?: string;
 };
 
@@ -221,6 +250,8 @@ export type ParseSummary = {
 
 export type CloudSnapshot = {
   event: EventState;
+  sessions: ExperimentSession[];
+  stagePresets: StagePreset[];
   participants: Participant[];
   qa: QaQuestion[];
   sweeps: SweepResult[];

@@ -107,15 +107,7 @@ function completeParticipantIds(ratings: RatingSummary[], mappings: BlindMapping
   return [...byParticipant.entries()].filter(([, set]) => SOURCES.every((s) => set.has(s))).map(([id]) => id);
 }
 
-export function computeStats(snapshot: CloudSnapshot, roundMode: "round1" | "round2" | "combined") : StatsResult {
-  const roundIds = snapshot.event
-    ? roundMode === "round1"
-      ? ["round-1"]
-      : roundMode === "round2"
-        ? ["round-2"]
-        : ["round-1", "round-2"]
-    : [];
-
+export function computeStatsForRoundIds(snapshot: CloudSnapshot, roundIds: string[]) : StatsResult {
   const ratings = snapshot.ratings.filter((r) => roundIds.includes(r.roundId));
   const mappings = snapshot.blindMappings.filter((m) => roundIds.includes(m.roundId));
   const completeIds = completeParticipantIds(ratings, mappings, roundIds);
@@ -175,6 +167,17 @@ export function computeStats(snapshot: CloudSnapshot, roundMode: "round1" | "rou
       { comparison: "專注真卦 vs 分心隨機卦", meanDiff: pairwise("focused_true", "distracted_random") }
     ]
   };
+}
+
+export function computeStats(snapshot: CloudSnapshot, roundMode: "round1" | "round2" | "combined") : StatsResult {
+  const session = snapshot.sessions.find((item) => item.id === snapshot.event.activeSessionId) || snapshot.sessions[0];
+  const fallbackRoundIds = session?.roundIds || ["round-1", "round-2"];
+  const roundIds = roundMode === "round1"
+    ? [fallbackRoundIds[0]]
+    : roundMode === "round2"
+      ? [fallbackRoundIds[1]]
+      : fallbackRoundIds;
+  return computeStatsForRoundIds(snapshot, roundIds);
 }
 
 export function percent(value: number | null, digits = 1) {

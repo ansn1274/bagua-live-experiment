@@ -15,13 +15,17 @@ import {
 } from "lucide-react";
 import { currentEarthlyBranch, numbersToHexagram, sourceLabel, TRIGRAMS, type SourceType } from "../lib/meihua";
 import { buildMyGptUserPrompt, parseGptJson } from "../lib/prompt";
-import { computeStats, numberText, percent } from "../lib/statistics";
+import { computeStats, computeStatsForRoundIds, numberText, percent, type StatsResult } from "../lib/statistics";
 import {
   DEFAULT_PRIVATE,
   STAGES,
   activateWordCloudSession,
+  activateExperimentSession,
   advanceQuiz,
+  applyStagePreset,
   createEmptyCloud,
+  createExperimentSession,
+  createStagePreset,
   createWordCloudSession,
   ensureBlindMappings,
   ensureParticipant,
@@ -48,6 +52,8 @@ import {
   saveWordCloudEntry,
   setStage,
   startQuizLobby,
+  sessionRoundIds,
+  setActiveSessionRound,
   touchEvent,
   toggleAllowed,
   toggleQa,
@@ -393,6 +399,13 @@ function wordCloudRows(texts: string[]) {
 
 type WordCloudRow = ReturnType<typeof wordCloudRows>[number];
 type LaidOutWord = WordCloudRow & { text: string; size: number; x?: number; y?: number; rotate?: number };
+const WORD_COLORS = ["#0f766e", "#2563eb", "#be123c", "#9333ea", "#b45309", "#15803d", "#c2410c", "#4338ca", "#0f172a", "#a21caf"];
+
+function colorForWord(word: string) {
+  let hash = 0;
+  for (let i = 0; i < word.length; i += 1) hash = (hash * 31 + word.charCodeAt(i)) >>> 0;
+  return WORD_COLORS[hash % WORD_COLORS.length];
+}
 
 function WordCloudViz({ rows, compact = false }: { rows: WordCloudRow[]; compact?: boolean }) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -446,7 +459,7 @@ function WordCloudViz({ rows, compact = false }: { rows: WordCloudRow[]; compact
                 key={`${word.text}-${i}`}
                 textAnchor="middle"
                 transform={`translate(${word.x || 0}, ${word.y || 0}) rotate(${word.rotate || 0})`}
-                style={{ fontSize: word.size, fontWeight: 800 }}
+                style={{ fontSize: word.size, fontWeight: 800, fill: colorForWord(word.text) }}
               >
                 {word.text}
               </text>
@@ -589,6 +602,16 @@ function makeSweepItems(plumDensity: number, plumStdDev: number, leafDensity: nu
   for (let i = 0; i < leafCount; i += 1) items.push({ id: `l${i}`, type: "leaf", x: rng() * 96 + 2, y: rng() * 90 + 5 });
   Object.values(TRIGRAMS).forEach((t, i) => items.push({ id: `t${i}`, type: "trigram", x: rng() * 86 + 7, y: rng() * 78 + 10, label: `${t.symbol} ${t.name}` }));
   return items;
+}
+
+function stableShuffle<T>(items: T[], seedKey: string) {
+  const rng = seededRandom(seedKey);
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 function SweepPanel({ snapshot, participant, updateCloud }: {
@@ -1038,6 +1061,10 @@ function RatingPanel({ snapshot, participant, privateData, updateCloud }: {
   const cards = privateData.parsedCards;
   const selectedRanks = cards.map((card) => ranks[card.blind_id]).filter((rank): rank is number => typeof rank === "number");
   const ranksComplete = cards.length === 3 && selectedRanks.length === 3 && new Set(selectedRanks).size === 3;
+  const statementItems = useMemo(() => stableShuffle(
+    cards.flatMap((card) => card.statements.map((statement, index) => ({ card, statement, index }))),
+    `${participant?.id || "anon"}:${roundId}:${privateData.gptRaw.length}:statements`
+  ), [cards, participant?.id, privateData.gptRaw.length, roundId]);
   return (
     <section className="panel-card">
       <div className="section-head">
@@ -1049,20 +1076,27 @@ function RatingPanel({ snapshot, participant, privateData, updateCloud }: {
       </div>
       {!cards.length && <p className="warn">尚未解析 My GPT JSON。</p>}
       {submitted && <p className="status-line">你已送出評分，不能重改。</p>}
+      <div className="panel-card inner">
+        <h3>可核對項目</h3>
+        <p className="muted">15 個項目已跨三張卡隨機打亂；只勾選你覺得符合自己情況的句子。</p>
+        <div className="statement-list">
+          {statementItems.map(({ card, statement }, displayIndex) => {
+            const key = `${card.blind_id}:${statement.id}`;
+            return (
+              <label className="check-line statement-check" key={key}>
+                <input type="checkbox" disabled={submitted} checked={!!checked[key]} onChange={(e) => setChecked((prev) => ({ ...prev, [key]: e.target.checked }))} />
+                <span><strong>項目 {displayIndex + 1}</strong> {statement.text}</span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+      <h3>總結卡排序</h3>
+      <p className="muted">請只根據總結內容，排序哪一張最符合、最有感。</p>
       <div className="card-grid">
-        {cards.map((card) => (
+        {cards.map((card, index) => (
           <div className="reading-card" key={card.blind_id}>
-            <h3>解讀 {card.blind_id}</h3>
-            <p className="muted">{card.hexagram_echo}</p>
-            {card.statements.map((s) => {
-              const key = `${card.blind_id}:${s.id}`;
-              return (
-                <label className="check-line" key={key}>
-                  <input type="checkbox" disabled={submitted} checked={!!checked[key]} onChange={(e) => setChecked((prev) => ({ ...prev, [key]: e.target.checked }))} />
-                  <span><strong>{s.aspect}</strong> {s.text}</span>
-                </label>
-              );
-            })}
+            <h3>總結卡 {index + 1}</h3>
             <div className="bonus-box">{card.bonus_reading}</div>
             <label>喜好排序
               <select disabled={submitted} value={ranks[card.blind_id]} onChange={(e) => setRanks((prev) => ({ ...prev, [card.blind_id]: e.target.value ? Number(e.target.value) : "" }))}>
@@ -1120,9 +1154,8 @@ function RevealPanel({ snapshot, participant, privateData }: {
             <div key={card.blind_id} className={`reading-card reveal-reading ${isTrue ? "true" : ""}`}>
               <h3>解讀 {card.blind_id} {isTrue ? "真卦" : ""}</h3>
               <p className="status-line">{source ? sourceLabel(source) : "尚未鎖定來源"}</p>
-              <p className="muted">{card.hexagram_echo}</p>
               <div className="bonus-box">{card.bonus_reading}</div>
-              {card.statements.map((s) => <p key={s.id}>・<strong>{s.aspect}</strong> {s.text}</p>)}
+              {card.statements.map((s, index) => <p key={s.id}>・<strong>項目 {index + 1}</strong> {s.text}</p>)}
             </div>
           );
         }) : <p className="muted">尚未解析 My GPT JSON。</p>}
@@ -1207,8 +1240,16 @@ function AdminPanel({ snapshot, updateCloud }: {
 }) {
   const [adminTab, setAdminTab] = useState<AdminTab>("session");
   const [statsMode, setStatsMode] = useState<StatsMode>("combined");
+  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>(() => [snapshot.event.activeSessionId]);
+  const [stats, setStats] = useState<StatsResult | null>(null);
   const [quizCount, setQuizCount] = useState(7);
-  const stats = adminTab === "stats" ? computeStats(snapshot, statsMode) : null;
+  const [newSessionTitle, setNewSessionTitle] = useState("");
+  const [presetName, setPresetName] = useState("");
+  useEffect(() => {
+    if (!selectedSessionIds.length && snapshot.event.activeSessionId) setSelectedSessionIds([snapshot.event.activeSessionId]);
+  }, [selectedSessionIds.length, snapshot.event.activeSessionId]);
+  const activeSession = snapshot.sessions.find((session) => session.id === snapshot.event.activeSessionId) || snapshot.sessions[0];
+  const activeSessionRoundIds = activeSession?.roundIds || [snapshot.event.activeRoundId];
   const liveSession = snapshot.quizSession;
   const liveRows = liveSession
     ? [...snapshot.quizAnswers.filter((a) => a.sessionId === liveSession.id && a.questionIndex >= 0).reduce((map, a) => {
@@ -1225,7 +1266,16 @@ function AdminPanel({ snapshot, updateCloud }: {
   const leaderboard = liveRows.length
     ? liveRows.slice(0, 20).map((r) => ({ participantId: r.id, roundId: liveSession?.roundId || getRoundId(snapshot), displayName: r.name, score: r.score, correctCount: r.correct, totalCount: liveSession?.questions.length || 0, elapsedMs: r.elapsed }))
     : [...snapshot.quizScores].sort((a, b) => b.score - a.score || a.elapsedMs - b.elapsedMs).slice(0, 20);
-  const sweeps = snapshot.sweeps;
+  const sweeps = snapshot.sweeps.filter((sweep) => activeSessionRoundIds.includes(sweep.roundId));
+  const runStats = () => {
+    const ids = selectedSessionIds.length ? selectedSessionIds : [snapshot.event.activeSessionId];
+    const roundIds = statsMode === "round1"
+      ? snapshot.sessions.filter((session) => ids.includes(session.id)).map((session) => session.roundIds[0])
+      : statsMode === "round2"
+        ? snapshot.sessions.filter((session) => ids.includes(session.id)).map((session) => session.roundIds[1])
+        : sessionRoundIds(snapshot, ids);
+    setStats(computeStatsForRoundIds(snapshot, roundIds));
+  };
   return (
     <div className="admin-grid">
       <section className="panel-card wide admin-tabs">
@@ -1242,6 +1292,50 @@ function AdminPanel({ snapshot, updateCloud }: {
 
       {adminTab === "session" && <section className="panel-card wide">
         <h2>Session Control</h2>
+        <div className="panel-card inner">
+          <h3>課程 / 測試 Session</h3>
+          <p className="muted">新 session 會建立乾淨的 Round 1/2 統計分組；舊 session 仍保留，可在統計頁選擇合併。</p>
+          <div className="inline-form">
+            <input value={newSessionTitle} onChange={(e) => setNewSessionTitle(e.target.value)} placeholder="新 session 名稱，例如：第二場演講" />
+            <button onClick={() => {
+              updateCloud((draft) => createExperimentSession(draft, newSessionTitle));
+              setSelectedSessionIds([]);
+              setStats(null);
+              setNewSessionTitle("");
+            }}>建立並切換</button>
+          </div>
+          <div className="word-session-list">
+            {snapshot.sessions.map((session) => (
+              <button key={session.id} className={session.id === snapshot.event.activeSessionId ? "selected" : ""} onClick={() => {
+                updateCloud((draft) => activateExperimentSession(draft, session.id));
+                setSelectedSessionIds([session.id]);
+                setStats(null);
+              }}>
+                {session.title}<span>{session.roundIds.map((roundId) => snapshot.ratings.filter((rating) => rating.roundId === roundId && rating.forcedChoice).length).reduce((a, b) => a + b, 0)} 評分</span>
+              </button>
+            ))}
+          </div>
+          <div className="actions wrap">
+            <button onClick={() => updateCloud((draft) => setActiveSessionRound(draft, 1))}>本 session Round 1</button>
+            <button onClick={() => updateCloud((draft) => setActiveSessionRound(draft, 2))}>本 session Round 2</button>
+          </div>
+        </div>
+        <div className="panel-card inner">
+          <h3>Stage Presets</h3>
+          <p className="muted">實際上課時可以直接套用 Step，會同步設定目前頁面、可見頁、文字雲狀態、掃地參數、測驗秒數與教學步驟。</p>
+          <div className="stage-grid compact">
+            {snapshot.stagePresets.map((preset) => (
+              <button key={preset.id} onClick={() => updateCloud((draft) => applyStagePreset(draft, preset.id))}>{preset.name}</button>
+            ))}
+          </div>
+          <div className="inline-form">
+            <input value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="把目前設定存成新的 preset" />
+            <button onClick={() => {
+              updateCloud((draft) => createStagePreset(draft, presetName));
+              setPresetName("");
+            }}>儲存 preset</button>
+          </div>
+        </div>
         <div className="stage-grid">
           {STAGES.map((s) => (
             <button key={s.key} className={snapshot.event.currentStage === s.key ? "selected" : ""} onClick={() => updateCloud((draft) => setStage(draft, s.key))}>{s.label}</button>
@@ -1252,8 +1346,6 @@ function AdminPanel({ snapshot, updateCloud }: {
           {STAGES.map((s) => <button key={s.key} className={snapshot.event.allowedPages.includes(s.key) ? "selected" : ""} onClick={() => updateCloud((draft) => toggleAllowed(draft, s.key))}>{s.label}</button>)}
         </div>
         <div className="actions wrap">
-          <button onClick={() => updateCloud((draft) => { draft.event.activeRoundId = "round-1"; draft.event.roundIndex = 1; touchEvent(draft); })}>Round 1</button>
-          <button onClick={() => updateCloud((draft) => { draft.event.activeRoundId = "round-2"; draft.event.roundIndex = 2; touchEvent(draft); })}>Round 2</button>
           <button onClick={() => updateCloud((draft) => { draft.event.practiceStep = Math.max(1, draft.event.practiceStep - 1); touchEvent(draft); })}>教學上一步</button>
           <button onClick={() => updateCloud((draft) => { draft.event.practiceStep = Math.min(14, draft.event.practiceStep + 1); touchEvent(draft); })}>教學下一步</button>
           <button className={snapshot.event.showScreenPanel ? "selected" : ""} onClick={() => updateCloud((draft) => { draft.event.showScreenPanel = !draft.event.showScreenPanel; touchEvent(draft); })}>
@@ -1319,7 +1411,7 @@ function AdminPanel({ snapshot, updateCloud }: {
         <table><thead><tr><th>名次</th><th>姓名</th><th>分數</th><th>正確率</th><th>秒</th></tr></thead><tbody>{leaderboard.map((q, i) => <tr key={`${q.participantId}-${q.roundId}`}><td>{i + 1}</td><td>{q.displayName}</td><td>{q.score}</td><td>{q.correctCount}/{q.totalCount}</td><td>{Math.round(q.elapsedMs / 1000)}</td></tr>)}</tbody></table>
       </section>}
 
-      {adminTab === "stats" && stats && <section className="panel-card wide">
+      {adminTab === "stats" && <section className="panel-card wide">
         <div className="section-head">
           <BarChart3 />
           <div>
@@ -1327,30 +1419,45 @@ function AdminPanel({ snapshot, updateCloud }: {
             <h2>完整統計檢定</h2>
           </div>
         </div>
+        <p className="muted">先選擇要納入的 session 與 round，再按按鈕執行統計；切換頁面或即時同步時不會自動重算。</p>
+        <div className="word-session-list">
+          {snapshot.sessions.map((session) => (
+            <button key={session.id} className={selectedSessionIds.includes(session.id) ? "selected" : ""} onClick={() => {
+              setSelectedSessionIds((prev) => prev.includes(session.id) ? prev.filter((id) => id !== session.id) : [...prev, session.id]);
+              setStats(null);
+            }}>
+              {session.title}<span>{session.roundIds.join(" / ")}</span>
+            </button>
+          ))}
+        </div>
         <div className="segmented">
-          <button className={statsMode === "round1" ? "selected" : ""} onClick={() => setStatsMode("round1")}>Round 1</button>
-          <button className={statsMode === "round2" ? "selected" : ""} onClick={() => setStatsMode("round2")}>Round 2</button>
-          <button className={statsMode === "combined" ? "selected" : ""} onClick={() => setStatsMode("combined")}>合併</button>
+          <button className={statsMode === "round1" ? "selected" : ""} onClick={() => { setStatsMode("round1"); setStats(null); }}>Round 1</button>
+          <button className={statsMode === "round2" ? "selected" : ""} onClick={() => { setStatsMode("round2"); setStats(null); }}>Round 2</button>
+          <button className={statsMode === "combined" ? "selected" : ""} onClick={() => { setStatsMode("combined"); setStats(null); }}>合併</button>
         </div>
-        <div className="metric-row">
-          <Metric label="有效 forced choice" value={`${stats.nCompleteForcedChoice}`} />
-          <Metric label="真卦選擇率" value={percent(stats.trueChoiceRate)} />
-          <Metric label="χ² p-value" value={numberText(stats.chiSquareP)} />
-          <Metric label="單尾 binomial p" value={numberText(stats.binomialP)} />
-          <Metric label="Power(p=50%)" value={percent(stats.power)} />
-          <Metric label="β 型二誤差" value={percent(stats.beta)} />
-        </div>
-        <div className="chart-grid">
-          <BarSet title="強迫選擇" rows={stats.sourceStats.map((s) => ({ label: sourceLabel(s.source), value: s.choiceCount, max: Math.max(1, stats.nCompleteForcedChoice) }))} />
-          <BarSet title="平均勾選率" rows={stats.sourceStats.map((s) => ({ label: sourceLabel(s.source), value: Math.round((s.meanHitRate || 0) * 100), max: 100, suffix: "%" }))} />
-          <BarSet title="平均主觀分數" rows={stats.sourceStats.map((s) => ({ label: sourceLabel(s.source), value: s.meanSubjective || 0, max: 5 }))} />
-        </div>
-        <div className="stats-notes">
-          <p>型一誤差 α = {stats.alpha}：其實三組無差異，卻錯誤宣稱專注真卦較吻合的風險。</p>
-          <p>型二誤差 β：若專注真卦真實第一名率為 50%，目前樣本數仍做不出顯著結果的機率。</p>
-          <p>達 80% power 所需 N：{stats.sampleNeeds.map((x) => `效果 ${Math.round(x.effect * 100)}%：${x.neededN || "大於500"}`).join(" / ")}</p>
-          {stats.hitPairwise.map((p) => <p key={p.comparison}>{p.comparison} 平均 hit-rate 差：{p.meanDiff === null ? "尚無" : `${(p.meanDiff * 100).toFixed(1)}%`}</p>)}
-        </div>
+        <div className="actions"><button className="primary" disabled={!selectedSessionIds.length} onClick={runStats}>執行統計計算</button></div>
+        {!stats && <p className="warn">尚未執行統計。選好分組後按「執行統計計算」。</p>}
+        {stats && <>
+          <div className="metric-row">
+            <Metric label="有效 forced choice" value={`${stats.nCompleteForcedChoice}`} />
+            <Metric label="真卦選擇率" value={percent(stats.trueChoiceRate)} />
+            <Metric label="χ² p-value" value={numberText(stats.chiSquareP)} />
+            <Metric label="單尾 binomial p" value={numberText(stats.binomialP)} />
+            <Metric label="Power(p=50%)" value={percent(stats.power)} />
+            <Metric label="β 型二誤差" value={percent(stats.beta)} />
+          </div>
+          <div className="chart-grid">
+            <BarSet title="強迫選擇" rows={stats.sourceStats.map((s) => ({ label: sourceLabel(s.source), value: s.choiceCount, max: Math.max(1, stats.nCompleteForcedChoice) }))} />
+            <BarSet title="平均勾選率" rows={stats.sourceStats.map((s) => ({ label: sourceLabel(s.source), value: Math.round((s.meanHitRate || 0) * 100), max: 100, suffix: "%" }))} />
+            <BarSet title="平均主觀分數" rows={stats.sourceStats.map((s) => ({ label: sourceLabel(s.source), value: s.meanSubjective || 0, max: 5 }))} />
+          </div>
+          <div className="stats-notes">
+            <p>型一誤差 α = {stats.alpha}：其實三組無差異，卻錯誤宣稱專注真卦較吻合的風險。</p>
+            <p>型二誤差 β：若專注真卦真實第一名率為 50%，目前樣本數仍做不出顯著結果的機率。</p>
+            <p>達 80% power 所需 N：{stats.sampleNeeds.map((x) => `效果 ${Math.round(x.effect * 100)}%：${x.neededN || "大於500"}`).join(" / ")}</p>
+            {stats.hitPairwise.map((p) => <p key={p.comparison}>{p.comparison} 平均 hit-rate 差：{p.meanDiff === null ? "尚無" : `${(p.meanDiff * 100).toFixed(1)}%`}</p>)}
+          </div>
+        </>}
       </section>}
 
       {adminTab === "export" && <section className="panel-card wide">
