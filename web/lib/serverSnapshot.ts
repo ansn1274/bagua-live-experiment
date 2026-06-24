@@ -1,20 +1,26 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { BlindMapping, CloudSnapshot, Participant, QaQuestion, QuizScore, RandomSource, RatingSummary, SweepResult } from "./types";
+import type { BlindMapping, CloudSnapshot, EventState, Participant, QaQuestion, QuizLiveSession, QuizScore, RandomSource, RatingSummary, SweepResult } from "./types";
 
 const STATE_KEY = "live-event";
+const EVENT_EPOCH = "2026-01-01T00:00:00.000Z";
+const VALID_SOURCES = new Set(["sweep_random", "focused_true", "distracted_random"]);
+const VALID_BLINDS = new Set(["A", "B", "C"]);
 
 function emptySnapshot(): CloudSnapshot {
   return {
     event: {
       id: "live-event",
       title: "梅花易數三盲互動實驗",
+      updatedAt: EVENT_EPOCH,
       activeRoundId: "round-1",
       currentStage: "qa",
       allowedPages: ["welcome", "qa", "wordcloud", "sweep"],
       revealEnabled: false,
       sweepOpen: false,
       sweepPlumDensity: 260,
+      sweepPlumStdDev: 35,
       sweepLeafDensity: 330,
+      sweepLeafStdDev: 45,
       quizQuestionSeconds: 15,
       showScreenPanel: false,
       activeWordCloudSessionId: undefined,
@@ -91,8 +97,8 @@ function normalizeSnapshot(snapshot: CloudSnapshot): CloudSnapshot {
       likedBy: q.likedBy || []
     })),
     sweeps: snapshot.sweeps || [],
-    randomSources: snapshot.randomSources || [],
-    blindMappings: snapshot.blindMappings || [],
+    randomSources: (snapshot.randomSources || []).filter((row) => VALID_SOURCES.has(row.sourceType)),
+    blindMappings: (snapshot.blindMappings || []).filter((row) => VALID_SOURCES.has(row.sourceType) && VALID_BLINDS.has(row.blindId)),
     quizScores: snapshot.quizScores || [],
     quizSession: snapshot.quizSession || null,
     quizAnswers: snapshot.quizAnswers || [],
@@ -105,20 +111,34 @@ function normalizeSnapshot(snapshot: CloudSnapshot): CloudSnapshot {
 
 function mergeSnapshots(existing: CloudSnapshot, incoming: CloudSnapshot): CloudSnapshot {
   return {
-    event: incoming.event,
+    event: latestEvent(existing.event, incoming.event),
     participants: mergeBy(existing.participants, incoming.participants, (x) => x.id, mergeParticipant),
     qa: mergeBy(existing.qa, incoming.qa, (x) => x.id, mergeQa),
     sweeps: mergeBy(existing.sweeps, incoming.sweeps, (x) => `${x.roundId}:${x.participantId}`, (_, next) => next),
     randomSources: mergeBy(existing.randomSources, incoming.randomSources, (x) => `${x.roundId}:${x.participantId}:${x.sourceType}`, (_, next) => next),
     blindMappings: mergeBy(existing.blindMappings, incoming.blindMappings, (x) => `${x.roundId}:${x.participantId}:${x.blindId}`, (_, next) => next),
     quizScores: mergeBy(existing.quizScores, incoming.quizScores, (x) => `${x.roundId}:${x.participantId}`, (_, next) => next),
-    quizSession: incoming.quizSession || existing.quizSession || null,
+    quizSession: latestQuizSession(existing.quizSession || null, incoming.quizSession || null),
     quizAnswers: mergeBy(existing.quizAnswers, incoming.quizAnswers, (x) => `${x.sessionId}:${x.participantId}:${x.questionId}`, (_, next) => next),
     wordCloudSessions: mergeBy(existing.wordCloudSessions, incoming.wordCloudSessions, (x) => x.id, (_, next) => next),
     wordCloudEntries: mergeBy(existing.wordCloudEntries, incoming.wordCloudEntries, (x) => x.id, (_, next) => next),
     ratings: mergeBy(existing.ratings, incoming.ratings, (x) => `${x.roundId}:${x.participantId}:${x.blindId}`, (_, next) => next),
     parses: mergeBy(existing.parses, incoming.parses, (x) => `${x.roundId}:${x.participantId}`, (_, next) => next)
   };
+}
+
+function timestamp(value?: string) {
+  return value ? Date.parse(value) || 0 : 0;
+}
+
+function latestEvent(existing: EventState, incoming: EventState): EventState {
+  return timestamp(incoming.updatedAt) > timestamp(existing.updatedAt) ? incoming : existing;
+}
+
+function latestQuizSession(existing: QuizLiveSession | null, incoming: QuizLiveSession | null) {
+  if (!existing) return incoming;
+  if (!incoming) return existing;
+  return timestamp(incoming.updatedAt || incoming.createdAt) > timestamp(existing.updatedAt || existing.createdAt) ? incoming : existing;
 }
 
 function mergeBy<T>(existing: T[], incoming: T[], keyOf: (item: T) => string, merge: (prev: T, next: T) => T) {

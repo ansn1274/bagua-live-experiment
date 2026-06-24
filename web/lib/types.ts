@@ -15,7 +15,7 @@ export type StageKey =
   | "reveal"
   | "progress";
 
-export type BlindId = "A" | "B" | "C" | "D";
+export type BlindId = "A" | "B" | "C";
 
 export type Participant = {
   id: string;
@@ -28,19 +28,30 @@ export type Participant = {
 export type EventState = {
   id: string;
   title: string;
+  updatedAt: string;
   activeRoundId: string;
   currentStage: StageKey;
   allowedPages: StageKey[];
   revealEnabled: boolean;
   sweepOpen: boolean;
   sweepPlumDensity: number;
+  sweepPlumStdDev: number;
   sweepLeafDensity: number;
+  sweepLeafStdDev: number;
   quizQuestionSeconds: number;
   showScreenPanel: boolean;
   activeWordCloudSessionId?: string;
   wordCloudMaxEntriesPerParticipant: number;
   roundIndex: 1 | 2;
   practiceStep: number;
+};
+
+export type SweepVisualItem = {
+  id: string;
+  type: "plum" | "leaf" | "trigram";
+  x: number;
+  y: number;
+  label?: string;
 };
 
 export type PublicParticipantData = {
@@ -68,6 +79,8 @@ export type SweepResult = {
   plumCount: number;
   leafCount: number;
   foundTrigrams: string[];
+  boardItems?: SweepVisualItem[];
+  sweptItemIds?: string[];
   elapsedMs: number;
   hexagram: HexagramSummary;
   completedAt: string;
@@ -135,6 +148,7 @@ export type QuizLiveSession = {
   finished: boolean;
   questionStartedAt?: string;
   createdAt: string;
+  updatedAt?: string;
 };
 
 export type QuizLiveAnswer = {

@@ -28,7 +28,9 @@ const CLOUD_KEY = "bagua_live_cloud_v1";
 const PARTICIPANT_KEY = "bagua_live_participant_v1";
 const PRIVATE_KEY = "bagua_live_private_v1";
 let remoteSaveTimer: ReturnType<typeof setTimeout> | null = null;
-let remoteKnownUnavailable = false;
+const EVENT_EPOCH = "2026-01-01T00:00:00.000Z";
+const VALID_SOURCES = new Set<SourceType>(["sweep_random", "focused_true", "distracted_random"]);
+const VALID_BLINDS = new Set<BlindId>(["A", "B", "C"]);
 
 export const STAGES: { key: StageKey; label: string }[] = [
   { key: "welcome", label: "進入 / 匿名 ID" },
@@ -47,13 +49,16 @@ export const STAGES: { key: StageKey; label: string }[] = [
 export const DEFAULT_EVENT: EventState = {
   id: "live-event",
   title: "梅花易數三盲互動實驗",
+  updatedAt: EVENT_EPOCH,
   activeRoundId: "round-1",
   currentStage: "qa",
   allowedPages: ["welcome", "qa", "wordcloud", "sweep"],
   revealEnabled: false,
   sweepOpen: false,
   sweepPlumDensity: 260,
+  sweepPlumStdDev: 35,
   sweepLeafDensity: 330,
+  sweepLeafStdDev: 45,
   quizQuestionSeconds: 15,
   showScreenPanel: false,
   activeWordCloudSessionId: undefined,
@@ -105,8 +110,8 @@ function normalizeCloud(snapshot: CloudSnapshot): CloudSnapshot {
       likedBy: q.likedBy || []
     })),
     sweeps: snapshot.sweeps || [],
-    randomSources: snapshot.randomSources || [],
-    blindMappings: snapshot.blindMappings || [],
+    randomSources: (snapshot.randomSources || []).filter((row) => VALID_SOURCES.has(row.sourceType)),
+    blindMappings: (snapshot.blindMappings || []).filter((row) => VALID_SOURCES.has(row.sourceType) && VALID_BLINDS.has(row.blindId)),
     quizScores: snapshot.quizScores || [],
     quizSession: snapshot.quizSession || null,
     quizAnswers: snapshot.quizAnswers || [],
@@ -170,16 +175,12 @@ function cloneForRemote(snapshot: CloudSnapshot): CloudSnapshot {
 }
 
 export async function fetchRemoteCloud(participantId?: string): Promise<CloudSnapshot | null> {
-  if (remoteKnownUnavailable) return null;
   try {
     const suffix = participantId ? `?pid=${encodeURIComponent(participantId)}` : "";
     const res = await fetch(`/api/snapshot${suffix}`, { cache: "no-store" });
     if (!res.ok) return null;
     const json = await res.json() as { ok?: boolean; snapshot?: CloudSnapshot };
-    if (!json.ok) {
-      remoteKnownUnavailable = true;
-      return null;
-    }
+    if (!json.ok) return null;
     if (!json.snapshot) return null;
     return normalizeCloud(json.snapshot);
   } catch {
@@ -188,24 +189,19 @@ export async function fetchRemoteCloud(participantId?: string): Promise<CloudSna
 }
 
 export async function pushRemoteCloud(snapshot: CloudSnapshot) {
-  if (remoteKnownUnavailable) return;
   try {
     const res = await fetch("/api/snapshot", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ snapshot })
     });
-    if (res.ok) {
-      const json = await res.json() as { ok?: boolean };
-      if (!json.ok) remoteKnownUnavailable = true;
-    }
+    await res.text();
   } catch {
     // Local-first: a failed remote sync must not break the on-site flow.
   }
 }
 
 export async function recoverRemoteParticipant(codeOrId: string): Promise<Participant | null> {
-  if (remoteKnownUnavailable) return null;
   try {
     const res = await fetch("/api/recover", {
       method: "POST",
@@ -254,7 +250,7 @@ export function ensureParticipant(snapshot: CloudSnapshot) {
     };
     snapshot.participants.push(participant);
     saveParticipant(participant);
-    saveCloud(snapshot);
+    saveCloudLocal(snapshot);
   }
   return participant;
 }
@@ -348,14 +344,13 @@ export function saveSweep(snapshot: CloudSnapshot, result: Omit<SweepResult, "he
 
 export function upsertRandomSource(snapshot: CloudSnapshot, participantId: string, roundId: string, sourceType: SourceType, n1: number, n2: number, note?: string, timeBranchNum?: number) {
   const branchNum = timeBranchNum || currentEarthlyBranch().num;
-  const reversed = sourceType === "focused_reversed";
   const row: RandomSource = {
     participantId,
     roundId,
     sourceType,
     n1: Math.max(1, Math.trunc(n1)),
     n2: Math.max(1, Math.trunc(n2)),
-    hexagram: numbersToHexagram(Math.max(1, Math.trunc(n1)), Math.max(1, Math.trunc(n2)), { timeBranchNum: branchNum, reversed }),
+    hexagram: numbersToHexagram(Math.max(1, Math.trunc(n1)), Math.max(1, Math.trunc(n2)), { timeBranchNum: branchNum }),
     note,
     createdAt: now()
   };
@@ -379,11 +374,13 @@ export function createWordCloudSession(snapshot: CloudSnapshot, prompt: string) 
   snapshot.wordCloudSessions.forEach((s) => { s.active = false; });
   snapshot.wordCloudSessions.unshift(session);
   snapshot.event.activeWordCloudSessionId = session.id;
+  touchEvent(snapshot);
 }
 
 export function activateWordCloudSession(snapshot: CloudSnapshot, sessionId: string) {
   snapshot.wordCloudSessions.forEach((s) => { s.active = s.id === sessionId; });
   snapshot.event.activeWordCloudSessionId = sessionId;
+  touchEvent(snapshot);
 }
 
 export function saveWordCloudEntry(snapshot: CloudSnapshot, entry: Omit<WordCloudEntry, "id" | "createdAt">) {
@@ -405,7 +402,8 @@ export function startQuizLobby(snapshot: CloudSnapshot, roundId: string, questio
     acceptingJoin: true,
     started: false,
     finished: false,
-    createdAt: now()
+    createdAt: now(),
+    updatedAt: now()
   };
   snapshot.quizAnswers = snapshot.quizAnswers.filter((a) => a.sessionId !== snapshot.quizSession?.id);
 }
@@ -438,6 +436,7 @@ export function advanceQuiz(snapshot: CloudSnapshot) {
     return;
   }
   session.questionStartedAt = now();
+  session.updatedAt = now();
 }
 
 export function finishQuiz(snapshot: CloudSnapshot) {
@@ -445,6 +444,7 @@ export function finishQuiz(snapshot: CloudSnapshot) {
   if (!session) return;
   session.finished = true;
   session.acceptingJoin = false;
+  session.updatedAt = now();
   const totals = new Map<string, QuizScore>();
   const answers = snapshot.quizAnswers.filter((a) => a.sessionId === session.id && a.questionIndex >= 0);
   answers.forEach((a) => {
@@ -473,9 +473,9 @@ export function saveQuizAnswer(snapshot: CloudSnapshot, answer: QuizLiveAnswer) 
 
 export function ensureBlindMappings(snapshot: CloudSnapshot, participantId: string, roundId: string) {
   const existing = snapshot.blindMappings.filter((m) => m.participantId === participantId && m.roundId === roundId);
-  if (existing.length === 4) return existing;
-  const ids: BlindId[] = ["A", "B", "C", "D"];
-  const sources: SourceType[] = ["sweep_random", "focused_true", "distracted_random", "focused_reversed"];
+  if (existing.length === 3 && existing.every((m) => VALID_SOURCES.has(m.sourceType) && VALID_BLINDS.has(m.blindId))) return existing;
+  const ids: BlindId[] = ["A", "B", "C"];
+  const sources: SourceType[] = ["sweep_random", "focused_true", "distracted_random"];
   for (let i = sources.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
     [sources[i], sources[j]] = [sources[j], sources[i]];
@@ -501,6 +501,7 @@ export function saveRatings(snapshot: CloudSnapshot, rows: RatingSummary[]) {
 export function setStage(snapshot: CloudSnapshot, stage: StageKey) {
   snapshot.event.currentStage = stage;
   if (!snapshot.event.allowedPages.includes(stage)) snapshot.event.allowedPages.push(stage);
+  touchEvent(snapshot);
 }
 
 export function toggleAllowed(snapshot: CloudSnapshot, stage: StageKey) {
@@ -508,6 +509,11 @@ export function toggleAllowed(snapshot: CloudSnapshot, stage: StageKey) {
   if (set.has(stage)) set.delete(stage);
   else set.add(stage);
   snapshot.event.allowedPages = [...set];
+  touchEvent(snapshot);
+}
+
+export function touchEvent(snapshot: CloudSnapshot) {
+  snapshot.event.updatedAt = now();
 }
 
 export function resetParticipantRound(snapshot: CloudSnapshot, participantId: string, roundId: string) {

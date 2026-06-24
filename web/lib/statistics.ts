@@ -27,7 +27,7 @@ export type StatsResult = {
   hitPairwise: { comparison: string; meanDiff: number | null }[];
 };
 
-const SOURCES: SourceType[] = ["sweep_random", "focused_true", "distracted_random", "focused_reversed"];
+const SOURCES: SourceType[] = ["sweep_random", "focused_true", "distracted_random"];
 const ALPHA = 0.05;
 
 function mean(values: number[]) {
@@ -77,7 +77,7 @@ function powerFor(n: number, p0: number, p1: number, alpha: number) {
   return { criticalK, power: 1 - beta, beta };
 }
 
-function neededNForPower(effect: number, p0 = 1 / 4, alpha = ALPHA, targetPower = 0.8) {
+function neededNForPower(effect: number, p0 = 1 / 3, alpha = ALPHA, targetPower = 0.8) {
   for (let n = 10; n <= 500; n += 1) {
     const result = powerFor(n, p0, effect, alpha);
     if (result.power !== null && result.power >= targetPower) return n;
@@ -85,25 +85,9 @@ function neededNForPower(effect: number, p0 = 1 / 4, alpha = ALPHA, targetPower 
   return null;
 }
 
-function erf(x: number) {
-  const sign = x < 0 ? -1 : 1;
-  const a1 = 0.254829592;
-  const a2 = -0.284496736;
-  const a3 = 1.421413741;
-  const a4 = -1.453152027;
-  const a5 = 1.061405429;
-  const p = 0.3275911;
-  const absX = Math.abs(x);
-  const t = 1 / (1 + p * absX);
-  const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-absX * absX);
-  return sign * y;
-}
-
-function chiSquareDf3Survival(x: number) {
+function chiSquareDf2Survival(x: number) {
   if (x <= 0) return 1;
-  const root = Math.sqrt(x / 2);
-  const erfc = 1 - erf(root);
-  return Math.min(1, Math.max(0, erfc + Math.sqrt((2 * x) / Math.PI) * Math.exp(-x / 2)));
+  return Math.min(1, Math.max(0, Math.exp(-x / 2)));
 }
 
 function sourceFor(mapping: BlindMapping[], participantId: string, roundId: string, blindId: string) {
@@ -152,12 +136,12 @@ export function computeStats(snapshot: CloudSnapshot, roundMode: "round1" | "rou
   if (totalChoices > 0) {
     const expected = totalChoices / SOURCES.length;
     chiSquare = sourceStats.reduce((sum, row) => sum + ((row.choiceCount - expected) ** 2) / expected, 0);
-    chiSquareP = chiSquareDf3Survival(chiSquare);
+    chiSquareP = chiSquareDf2Survival(chiSquare);
   }
 
   const trueChoiceCount = sourceStats.find((s) => s.source === "focused_true")?.choiceCount || 0;
   const binomialP = totalChoices ? binomialUpperTail(totalChoices, trueChoiceCount, 1 / SOURCES.length) : null;
-  const powerInfo = totalChoices ? powerFor(totalChoices, 1 / SOURCES.length, 0.45, ALPHA) : { criticalK: null, power: null, beta: null };
+  const powerInfo = totalChoices ? powerFor(totalChoices, 1 / SOURCES.length, 0.5, ALPHA) : { criticalK: null, power: null, beta: null };
 
   const pairwise = (a: SourceType, b: SourceType) => {
     const diffs: number[] = [];
@@ -181,15 +165,14 @@ export function computeStats(snapshot: CloudSnapshot, roundMode: "round1" | "rou
     trueChoiceRate: totalChoices ? trueChoiceCount / totalChoices : null,
     binomialP,
     alpha: ALPHA,
-    assumedEffect: 0.45,
+    assumedEffect: 0.5,
     criticalK: powerInfo.criticalK,
     power: powerInfo.power,
     beta: powerInfo.beta,
-    sampleNeeds: [0.35, 0.4, 0.45].map((effect) => ({ effect, neededN: neededNForPower(effect, 1 / SOURCES.length) })),
+    sampleNeeds: [0.4, 0.45, 0.5].map((effect) => ({ effect, neededN: neededNForPower(effect, 1 / SOURCES.length) })),
     hitPairwise: [
       { comparison: "專注真卦 vs 掃地隨機卦", meanDiff: pairwise("focused_true", "sweep_random") },
-      { comparison: "專注真卦 vs 分心隨機卦", meanDiff: pairwise("focused_true", "distracted_random") },
-      { comparison: "專注真卦 vs 上下反置對照", meanDiff: pairwise("focused_true", "focused_reversed") }
+      { comparison: "專注真卦 vs 分心隨機卦", meanDiff: pairwise("focused_true", "distracted_random") }
     ]
   };
 }

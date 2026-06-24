@@ -48,6 +48,7 @@ import {
   saveWordCloudEntry,
   setStage,
   startQuizLobby,
+  touchEvent,
   toggleAllowed,
   toggleQa,
   updateParticipantNickname,
@@ -63,13 +64,14 @@ import type {
   QuizLiveQuestion,
   QuizLiveAnswer,
   RatingSummary,
-  StageKey
+  StageKey,
+  SweepVisualItem
 } from "../lib/types";
 
 type StatsMode = "round1" | "round2" | "combined";
 type AdminTab = "session" | "qa" | "wordcloud" | "sweep" | "quiz" | "stats" | "export";
 
-const SOURCE_ORDER: SourceType[] = ["sweep_random", "focused_true", "distracted_random", "focused_reversed"];
+const SOURCE_ORDER: SourceType[] = ["sweep_random", "focused_true", "distracted_random"];
 
 const QUIZ = [
   { q: "☲ 是哪一卦？", options: ["乾", "離", "坎", "艮"], answer: "離" },
@@ -162,17 +164,6 @@ function eligibleSources(snapshot: CloudSnapshot, participantId: string, roundId
     const found = current.find((s) => s.sourceType === source);
     if (found) return found;
     if (source === "distracted_random" && firstRoundDistracted) return { ...firstRoundDistracted, roundId };
-    if (source === "focused_reversed") {
-      const focused = current.find((s) => s.sourceType === "focused_true");
-      if (focused) {
-        return {
-          ...focused,
-          sourceType: "focused_reversed" as const,
-          hexagram: numbersToHexagram(focused.n1, focused.n2, { timeBranchNum: focused.hexagram.timeBranchNum, reversed: true }),
-          note: "derived_from_focused_true_reversed_upper_lower"
-        };
-      }
-    }
     return null;
   });
   return rows.filter(Boolean) as NonNullable<(typeof rows)[number]>[];
@@ -186,11 +177,20 @@ function useExperimentState() {
   const [snapshot, setSnapshot] = useState<CloudSnapshot>(() => createEmptyCloud());
   const [participant, setParticipant] = useState<Participant | null>(null);
   const [privateData, setPrivateData] = useState<LocalPrivateData>(DEFAULT_PRIVATE);
+  const snapshotJsonRef = useRef("");
+
+  const setCloudSnapshot = (next: CloudSnapshot, persistLocal = true) => {
+    const json = JSON.stringify(next);
+    if (json === snapshotJsonRef.current) return;
+    snapshotJsonRef.current = json;
+    if (persistLocal) saveCloudLocal(next);
+    setSnapshot(next);
+  };
 
   useEffect(() => {
     const cloud = loadCloud();
     const person = ensureParticipant(cloud);
-    setSnapshot(loadCloud());
+    setCloudSnapshot(loadCloud(), false);
     setParticipant(person);
     setPrivateData(loadPrivate());
 
@@ -201,8 +201,7 @@ function useExperimentState() {
       const existing = merged.participants.find((p) => p.id === person.id);
       if (!existing) merged.participants.push(person);
       else if (!existing.recoveryCode) existing.recoveryCode = person.recoveryCode;
-      saveCloudLocal(merged);
-      setSnapshot(merged);
+      setCloudSnapshot(merged);
     });
 
     return () => {
@@ -211,7 +210,7 @@ function useExperimentState() {
   }, []);
 
   useEffect(() => {
-    const sync = () => setSnapshot(loadCloud());
+    const sync = () => setCloudSnapshot(loadCloud(), false);
     window.addEventListener("storage", sync);
     return () => window.removeEventListener("storage", sync);
   }, []);
@@ -229,8 +228,7 @@ function useExperimentState() {
         if (!existing) merged.participants.push(localParticipant);
         else if (!existing.recoveryCode) existing.recoveryCode = localParticipant.recoveryCode;
       }
-      saveCloudLocal(merged);
-      setSnapshot(merged);
+      setCloudSnapshot(merged);
     };
     const timer = window.setInterval(syncRemote, 2000);
     void syncRemote();
@@ -245,6 +243,7 @@ function useExperimentState() {
       const draft = clone(prev);
       fn(draft);
       saveCloud(draft);
+      snapshotJsonRef.current = JSON.stringify(draft);
       return draft;
     });
   };
@@ -378,11 +377,9 @@ function wordCloudRows(texts: string[]) {
   const stop = new Set(["的", "了", "是", "我", "你", "他", "她", "它", "和", "與", "在", "有", "想", "會", "要", "很", "也", "就"]);
   const counts = new Map<string, number>();
   texts.forEach((text) => {
-    const words = text
-      .replace(/[^\p{Script=Han}a-zA-Z0-9_\s]/gu, " ")
-      .match(/[\p{Script=Han}]{1,4}|[a-zA-Z0-9_]{2,}/gu) || [];
+    const words = text.match(/\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*|[\p{Script=Han}]{1,4}|[a-zA-Z0-9_]{2,}/gu) || [];
     words.forEach((raw) => {
-      const word = raw.trim().toLowerCase();
+      const word = /[a-zA-Z]/.test(raw) ? raw.trim().toLowerCase() : raw.trim();
       if (!word || stop.has(word)) return;
       counts.set(word, (counts.get(word) || 0) + 1);
     });
@@ -390,7 +387,7 @@ function wordCloudRows(texts: string[]) {
   const max = Math.max(1, ...counts.values());
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, 48)
+    .slice(0, 36)
     .map(([word, count]) => ({ word, count, weight: 0.85 + (count / max) * 2.4 }));
 }
 
@@ -421,13 +418,13 @@ function WordCloudViz({ rows, compact = false }: { rows: WordCloudRow[]; compact
     const layoutWords: LaidOutWord[] = rows.map((row) => ({
       ...row,
       text: row.word,
-      size: 16 + Math.sqrt(row.count / max) * (compact ? 42 : 58)
+      size: 14 + Math.sqrt(row.count / max) * (compact ? 34 : 46)
     }));
     const layout = cloud<LaidOutWord>()
       .size([width, height])
       .words(layoutWords)
-      .padding(4)
-      .rotate((_, i) => (i % 7 === 0 ? -18 : i % 5 === 0 ? 18 : 0))
+      .padding(2)
+      .rotate((_, i) => (i % 11 === 0 ? -12 : i % 7 === 0 ? 12 : 0))
       .font("Noto Sans TC, Microsoft JhengHei, Arial, sans-serif")
       .fontWeight(800)
       .fontSize((d) => d.size)
@@ -535,7 +532,7 @@ function WordCloudAdminPanel({ snapshot, updateCloud }: {
       </div>
       <div className="inline-form">
         <label>每人可輸入次數
-          <input type="number" min={1} max={20} value={snapshot.event.wordCloudMaxEntriesPerParticipant || 1} onChange={(e) => updateCloud((draft) => { draft.event.wordCloudMaxEntriesPerParticipant = Math.max(1, Math.min(20, Number(e.target.value) || 1)); })} />
+          <input type="number" min={1} max={20} value={snapshot.event.wordCloudMaxEntriesPerParticipant || 1} onChange={(e) => updateCloud((draft) => { draft.event.wordCloudMaxEntriesPerParticipant = Math.max(1, Math.min(20, Number(e.target.value) || 1)); touchEvent(draft); })} />
         </label>
       </div>
       <div className="word-session-list">
@@ -550,13 +547,47 @@ function WordCloudAdminPanel({ snapshot, updateCloud }: {
   );
 }
 
-type SweepItem = { id: string; type: "plum" | "leaf" | "trigram"; x: number; y: number; label?: string };
+type SweepItem = SweepVisualItem;
 
-function makeSweepItems(plumDensity: number, leafDensity: number) {
+function hashSeed(input: string) {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function seededRandom(seedInput: string) {
+  let seed = hashSeed(seedInput);
+  return () => {
+    seed += 0x6D2B79F5;
+    let t = seed;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function randomNormal(rng: () => number) {
+  const u = Math.max(0.000001, rng());
+  const v = Math.max(0.000001, rng());
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function sampleDensity(mean: number, stdDev: number, rng: () => number) {
+  const sampled = Math.round(mean + randomNormal(rng) * Math.max(0, stdDev));
+  return Math.max(20, Math.min(1200, sampled));
+}
+
+function makeSweepItems(plumDensity: number, plumStdDev: number, leafDensity: number, leafStdDev: number, seedKey: string) {
+  const rng = seededRandom(seedKey);
+  const plumCount = sampleDensity(plumDensity, plumStdDev, rng);
+  const leafCount = sampleDensity(leafDensity, leafStdDev, rng);
   const items: SweepItem[] = [];
-  for (let i = 0; i < plumDensity; i += 1) items.push({ id: `p${i}`, type: "plum", x: Math.random() * 96 + 2, y: Math.random() * 90 + 5 });
-  for (let i = 0; i < leafDensity; i += 1) items.push({ id: `l${i}`, type: "leaf", x: Math.random() * 96 + 2, y: Math.random() * 90 + 5 });
-  Object.values(TRIGRAMS).forEach((t, i) => items.push({ id: `t${i}`, type: "trigram", x: Math.random() * 86 + 7, y: Math.random() * 78 + 10, label: `${t.symbol} ${t.name}` }));
+  for (let i = 0; i < plumCount; i += 1) items.push({ id: `p${i}`, type: "plum", x: rng() * 96 + 2, y: rng() * 90 + 5 });
+  for (let i = 0; i < leafCount; i += 1) items.push({ id: `l${i}`, type: "leaf", x: rng() * 96 + 2, y: rng() * 90 + 5 });
+  Object.values(TRIGRAMS).forEach((t, i) => items.push({ id: `t${i}`, type: "trigram", x: rng() * 86 + 7, y: rng() * 78 + 10, label: `${t.symbol} ${t.name}` }));
   return items;
 }
 
@@ -570,14 +601,22 @@ function SweepPanel({ snapshot, participant, updateCloud }: {
   const [sweeping, setSweeping] = useState(false);
   const [startedAt] = useState<number>(() => Date.now());
   const roundId = getRoundId(snapshot);
-  const plumDensity = Math.max(20, Math.min(900, snapshot.event.sweepPlumDensity || 260));
-  const leafDensity = Math.max(20, Math.min(900, snapshot.event.sweepLeafDensity || 330));
-  const items = useMemo(() => makeSweepItems(plumDensity, leafDensity), [plumDensity, leafDensity, roundId, participant?.id]);
+  const plumDensity = Math.max(20, Math.min(900, snapshot.event.sweepPlumDensity ?? 260));
+  const plumStdDev = Math.max(0, Math.min(400, snapshot.event.sweepPlumStdDev ?? 35));
+  const leafDensity = Math.max(20, Math.min(900, snapshot.event.sweepLeafDensity ?? 330));
+  const leafStdDev = Math.max(0, Math.min(400, snapshot.event.sweepLeafStdDev ?? 45));
   const existing = participant ? publicData(snapshot, participant.id, roundId).sweep : null;
-  const plumCount = [...found].filter((id) => id.startsWith("p")).length;
-  const leafCount = [...found].filter((id) => id.startsWith("l")).length;
-  const foundTrigrams = items.filter((item) => found.has(item.id) && item.type === "trigram").map((item) => item.label || "");
   const complete = !!existing;
+  const generatedItems = useMemo(
+    () => makeSweepItems(plumDensity, plumStdDev, leafDensity, leafStdDev, `${roundId}:${participant?.id || "anon"}:${plumDensity}:${plumStdDev}:${leafDensity}:${leafStdDev}`),
+    [plumDensity, plumStdDev, leafDensity, leafStdDev, roundId, participant?.id]
+  );
+  const items = existing?.boardItems?.length ? existing.boardItems : generatedItems;
+  const savedFound = useMemo(() => new Set(existing?.sweptItemIds || []), [existing?.sweptItemIds]);
+  const activeFound = complete ? savedFound : found;
+  const plumCount = [...activeFound].filter((id) => id.startsWith("p")).length;
+  const leafCount = [...activeFound].filter((id) => id.startsWith("l")).length;
+  const foundTrigrams = items.filter((item) => activeFound.has(item.id) && item.type === "trigram").map((item) => item.label || "");
   const displayPlum = existing?.plumCount ?? plumCount;
   const displayLeaf = existing?.leafCount ?? leafCount;
   const displayTrigrams = existing?.foundTrigrams.length ?? foundTrigrams.length;
@@ -612,6 +651,8 @@ function SweepPanel({ snapshot, participant, updateCloud }: {
       plumCount: Math.max(1, plumCount),
       leafCount: Math.max(1, leafCount),
       foundTrigrams,
+      boardItems: items,
+      sweptItemIds: [...found],
       elapsedMs: Date.now() - startedAt
     }));
   };
@@ -657,8 +698,8 @@ function SweepPanel({ snapshot, participant, updateCloud }: {
             onPointerCancel={() => setSweeping(false)}
           >
             {items.map((item) => {
-              const swept = found.has(item.id);
-              const isRevealed = item.type === "trigram" && revealed.has(item.id);
+              const swept = activeFound.has(item.id);
+              const isRevealed = item.type === "trigram" && (revealed.has(item.id) || swept);
               const visible = item.type === "trigram" ? isRevealed || swept : !swept;
               return (
                 visible && (
@@ -739,7 +780,6 @@ function CastingPanel({ snapshot, participant, privateData, updatePrivate, updat
             const branch = currentEarthlyBranch();
             updateCloud((draft) => {
               upsertRandomSource(draft, participant.id, roundId, "focused_true", Number(n1), Number(n2), undefined, branch.num);
-              upsertRandomSource(draft, participant.id, roundId, "focused_reversed", Number(n1), Number(n2), "same_focused_numbers_reversed_upper_lower", branch.num);
             });
           }}>保存起卦資料</button>
         </>
@@ -873,7 +913,7 @@ function PromptPanel({ snapshot, participant, privateData, updateCloud, updatePr
   const hasAllSources = SOURCE_ORDER.every((source) => sources.some((s) => s.sourceType === source));
   const hasFocusedAndSweep = SOURCE_ORDER.filter((source) => source !== "distracted_random").every((source) => sources.some((s) => s.sourceType === source));
   const missingDistracted = hasFocusedAndSweep && !sources.some((s) => s.sourceType === "distracted_random");
-  const ready = hasAllSources && mappings.length === 4 && privateData.question.trim();
+  const ready = hasAllSources && mappings.length === 3 && !!privateData.question.trim();
   const prompt = ready ? buildMyGptUserPrompt(privateData, sources, mappings) : "";
   const [raw, setRaw] = useState(privateData.gptRaw);
   const [message, setMessage] = useState("");
@@ -892,22 +932,22 @@ function PromptPanel({ snapshot, participant, privateData, updateCloud, updatePr
         </div>
       </div>
       <p className="muted">這裡只產生 user prompt；system prompt 請預先設定在你的 My GPT。prompt 與 GPT 原始 JSON 只存在你的裝置，不會上傳。</p>
-      {!hasAllSources && <p className="warn">需要先完成掃地、起卦專注數字、反置對照與分心亂數。</p>}
+      {!hasAllSources && <p className="warn">需要先完成掃地、起卦專注數字與分心亂數。</p>}
       {missingDistracted && <button onClick={() => {
         if (!participant) return;
         const a = Math.floor(100 + Math.random() * 900);
         const b = Math.floor(100 + Math.random() * 900);
         updateCloud((draft) => upsertRandomSource(draft, participant.id, roundId, "distracted_random", a, b, "auto_generated_not_participant_input"));
       }}>用系統自動亂數補分心對照</button>}
-      {hasAllSources && !mappings.length && <p className="warn">四組卦已完成，請先鎖定 A/B/C/D 盲化順序，再複製 prompt。</p>}
-      {hasAllSources && mappings.length === 4 && !privateData.question.trim() && <p className="warn">請先在起卦頁填入你的問題；問題只存在本機。</p>}
+      {hasAllSources && !mappings.length && <p className="warn">三組卦已完成，請先鎖定 A/B/C 盲化順序，再複製 prompt。</p>}
+      {hasAllSources && mappings.length === 3 && !privateData.question.trim() && <p className="warn">請先在起卦頁填入你的問題；問題只存在本機。</p>}
       <textarea value={prompt} readOnly rows={16} />
       <div className="actions">
         <button disabled={!ready} onClick={() => void copyText(prompt).then(() => setMessage("Prompt 已複製。")).catch(() => setMessage("複製失敗，請手動全選複製。"))}>複製 prompt</button>
-        <button disabled={!hasAllSources || !participant || mappings.length === 4} onClick={() => {
+        <button disabled={!hasAllSources || !participant || mappings.length === 3} onClick={() => {
           if (!participant) return;
           updateCloud((draft) => ensureBlindMappings(draft, participant.id, roundId));
-        }}>鎖定 A/B/C/D 盲化順序</button>
+        }}>鎖定 A/B/C 盲化順序</button>
       </div>
       <div className="panel-card inner">
         <h3>貼回 My GPT JSON</h3>
@@ -992,12 +1032,12 @@ function RatingPanel({ snapshot, participant, privateData, updateCloud }: {
   updateCloud: (fn: (draft: CloudSnapshot) => void) => void;
 }) {
   const [checked, setChecked] = useState<Record<string, boolean>>({});
-  const [ranks, setRanks] = useState<Record<BlindId, number | "">>({ A: "", B: "", C: "", D: "" });
+  const [ranks, setRanks] = useState<Record<BlindId, number | "">>({ A: "", B: "", C: "" });
   const roundId = getRoundId(snapshot);
   const submitted = participant ? publicData(snapshot, participant.id, roundId).ratingSubmitted : false;
   const cards = privateData.parsedCards;
   const selectedRanks = cards.map((card) => ranks[card.blind_id]).filter((rank): rank is number => typeof rank === "number");
-  const ranksComplete = cards.length === 4 && selectedRanks.length === 4 && new Set(selectedRanks).size === 4;
+  const ranksComplete = cards.length === 3 && selectedRanks.length === 3 && new Set(selectedRanks).size === 3;
   return (
     <section className="panel-card">
       <div className="section-head">
@@ -1027,7 +1067,7 @@ function RatingPanel({ snapshot, participant, privateData, updateCloud }: {
             <label>喜好排序
               <select disabled={submitted} value={ranks[card.blind_id]} onChange={(e) => setRanks((prev) => ({ ...prev, [card.blind_id]: e.target.value ? Number(e.target.value) : "" }))}>
                 <option value="">未排序</option>
-                {[1, 2, 3, 4].map((rank) => <option key={rank} value={rank} disabled={selectedRanks.includes(rank) && ranks[card.blind_id] !== rank}>第 {rank} 名</option>)}
+                {[1, 2, 3].map((rank) => <option key={rank} value={rank} disabled={selectedRanks.includes(rank) && ranks[card.blind_id] !== rank}>第 {rank} 名</option>)}
               </select>
             </label>
           </div>
@@ -1042,7 +1082,7 @@ function RatingPanel({ snapshot, participant, privateData, updateCloud }: {
           blindId: card.blind_id,
           checkedCount: card.statements.filter((s) => checked[`${card.blind_id}:${s.id}`]).length,
           statementTotal: card.statements.length,
-          subjectiveScore: typeof ranks[card.blind_id] === "number" ? 5 - (ranks[card.blind_id] as number) : 0,
+          subjectiveScore: typeof ranks[card.blind_id] === "number" ? 4 - (ranks[card.blind_id] as number) : 0,
           bonusLiked: ranks[card.blind_id] === 1,
           forcedChoice: ranks[card.blind_id] === 1,
           createdAt: now()
@@ -1212,11 +1252,11 @@ function AdminPanel({ snapshot, updateCloud }: {
           {STAGES.map((s) => <button key={s.key} className={snapshot.event.allowedPages.includes(s.key) ? "selected" : ""} onClick={() => updateCloud((draft) => toggleAllowed(draft, s.key))}>{s.label}</button>)}
         </div>
         <div className="actions wrap">
-          <button onClick={() => updateCloud((draft) => { draft.event.activeRoundId = "round-1"; draft.event.roundIndex = 1; })}>Round 1</button>
-          <button onClick={() => updateCloud((draft) => { draft.event.activeRoundId = "round-2"; draft.event.roundIndex = 2; })}>Round 2</button>
-          <button onClick={() => updateCloud((draft) => { draft.event.practiceStep = Math.max(1, draft.event.practiceStep - 1); })}>教學上一步</button>
-          <button onClick={() => updateCloud((draft) => { draft.event.practiceStep = Math.min(14, draft.event.practiceStep + 1); })}>教學下一步</button>
-          <button className={snapshot.event.showScreenPanel ? "selected" : ""} onClick={() => updateCloud((draft) => { draft.event.showScreenPanel = !draft.event.showScreenPanel; })}>
+          <button onClick={() => updateCloud((draft) => { draft.event.activeRoundId = "round-1"; draft.event.roundIndex = 1; touchEvent(draft); })}>Round 1</button>
+          <button onClick={() => updateCloud((draft) => { draft.event.activeRoundId = "round-2"; draft.event.roundIndex = 2; touchEvent(draft); })}>Round 2</button>
+          <button onClick={() => updateCloud((draft) => { draft.event.practiceStep = Math.max(1, draft.event.practiceStep - 1); touchEvent(draft); })}>教學上一步</button>
+          <button onClick={() => updateCloud((draft) => { draft.event.practiceStep = Math.min(14, draft.event.practiceStep + 1); touchEvent(draft); })}>教學下一步</button>
+          <button className={snapshot.event.showScreenPanel ? "selected" : ""} onClick={() => updateCloud((draft) => { draft.event.showScreenPanel = !draft.event.showScreenPanel; touchEvent(draft); })}>
             {snapshot.event.showScreenPanel ? "關閉學生端全場資訊" : "開啟學生端全場資訊"}
           </button>
         </div>
@@ -1228,11 +1268,17 @@ function AdminPanel({ snapshot, updateCloud }: {
       {adminTab === "sweep" && <section className="panel-card wide">
         <h2>Sweep Monitor</h2>
         <div className="inline-form">
-          <label>梅花密度
-            <input type="number" min={20} max={900} value={snapshot.event.sweepPlumDensity || 260} onChange={(e) => updateCloud((draft) => { draft.event.sweepPlumDensity = Math.max(20, Math.min(900, Number(e.target.value) || 260)); })} />
+          <label>梅花平均
+            <input type="number" min={20} max={900} value={snapshot.event.sweepPlumDensity ?? 260} onChange={(e) => updateCloud((draft) => { draft.event.sweepPlumDensity = Math.max(20, Math.min(900, Number(e.target.value) || 260)); touchEvent(draft); })} />
           </label>
-          <label>葉子密度
-            <input type="number" min={20} max={900} value={snapshot.event.sweepLeafDensity || 330} onChange={(e) => updateCloud((draft) => { draft.event.sweepLeafDensity = Math.max(20, Math.min(900, Number(e.target.value) || 330)); })} />
+          <label>梅花標準差
+            <input type="number" min={0} max={400} value={snapshot.event.sweepPlumStdDev ?? 35} onChange={(e) => updateCloud((draft) => { draft.event.sweepPlumStdDev = Math.max(0, Math.min(400, Number(e.target.value) || 0)); touchEvent(draft); })} />
+          </label>
+          <label>葉子平均
+            <input type="number" min={20} max={900} value={snapshot.event.sweepLeafDensity ?? 330} onChange={(e) => updateCloud((draft) => { draft.event.sweepLeafDensity = Math.max(20, Math.min(900, Number(e.target.value) || 330)); touchEvent(draft); })} />
+          </label>
+          <label>葉子標準差
+            <input type="number" min={0} max={400} value={snapshot.event.sweepLeafStdDev ?? 45} onChange={(e) => updateCloud((draft) => { draft.event.sweepLeafStdDev = Math.max(0, Math.min(400, Number(e.target.value) || 0)); touchEvent(draft); })} />
           </label>
         </div>
         <div className="metric-row">
@@ -1249,7 +1295,7 @@ function AdminPanel({ snapshot, updateCloud }: {
             <input type="number" min={5} max={10} value={quizCount} onChange={(e) => setQuizCount(Math.max(5, Math.min(10, Number(e.target.value) || 5)))} />
           </label>
           <label>每題秒數
-            <input type="number" min={5} max={60} value={snapshot.event.quizQuestionSeconds || 15} onChange={(e) => updateCloud((draft) => { draft.event.quizQuestionSeconds = Math.max(5, Math.min(60, Number(e.target.value) || 15)); })} />
+            <input type="number" min={5} max={60} value={snapshot.event.quizQuestionSeconds || 15} onChange={(e) => updateCloud((draft) => { draft.event.quizQuestionSeconds = Math.max(5, Math.min(60, Number(e.target.value) || 15)); touchEvent(draft); })} />
           </label>
           <button onClick={() => updateCloud((draft) => startQuizLobby(draft, getRoundId(draft), quizCount, buildQuizQuestions(quizCount)))}>建立新測驗 Lobby</button>
         </div>
@@ -1291,7 +1337,7 @@ function AdminPanel({ snapshot, updateCloud }: {
           <Metric label="真卦選擇率" value={percent(stats.trueChoiceRate)} />
           <Metric label="χ² p-value" value={numberText(stats.chiSquareP)} />
           <Metric label="單尾 binomial p" value={numberText(stats.binomialP)} />
-          <Metric label="Power(p=45%)" value={percent(stats.power)} />
+          <Metric label="Power(p=50%)" value={percent(stats.power)} />
           <Metric label="β 型二誤差" value={percent(stats.beta)} />
         </div>
         <div className="chart-grid">
@@ -1300,8 +1346,8 @@ function AdminPanel({ snapshot, updateCloud }: {
           <BarSet title="平均主觀分數" rows={stats.sourceStats.map((s) => ({ label: sourceLabel(s.source), value: s.meanSubjective || 0, max: 5 }))} />
         </div>
         <div className="stats-notes">
-          <p>型一誤差 α = {stats.alpha}：其實四組無差異，卻錯誤宣稱專注真卦較吻合的風險。</p>
-          <p>型二誤差 β：若專注真卦真實第一名率為 45%，目前樣本數仍做不出顯著結果的機率。</p>
+          <p>型一誤差 α = {stats.alpha}：其實三組無差異，卻錯誤宣稱專注真卦較吻合的風險。</p>
+          <p>型二誤差 β：若專注真卦真實第一名率為 50%，目前樣本數仍做不出顯著結果的機率。</p>
           <p>達 80% power 所需 N：{stats.sampleNeeds.map((x) => `效果 ${Math.round(x.effect * 100)}%：${x.neededN || "大於500"}`).join(" / ")}</p>
           {stats.hitPairwise.map((p) => <p key={p.comparison}>{p.comparison} 平均 hit-rate 差：{p.meanDiff === null ? "尚無" : `${(p.meanDiff * 100).toFixed(1)}%`}</p>)}
         </div>
@@ -1365,10 +1411,25 @@ function ProgressPanel({ snapshot, participant, privateData }: { snapshot: Cloud
 function ParticipantShell() {
   const { snapshot, participant, privateData, setParticipant, updateCloud, updatePrivate } = useExperimentState();
   const [page, setPage] = useState<StageKey>(snapshot.event.currentStage || "welcome");
+  const lastAdminStageRef = useRef<StageKey | null>(null);
+  const allowedKey = snapshot.event.allowedPages.join("|");
 
   useEffect(() => {
-    setPage(currentPageAllowed(snapshot, snapshot.event.currentStage) ? snapshot.event.currentStage : (snapshot.event.allowedPages[0] || "welcome"));
-  }, [snapshot.event.currentStage, snapshot.event.allowedPages]);
+    const fallbackPage = currentPageAllowed(snapshot, snapshot.event.currentStage)
+      ? snapshot.event.currentStage
+      : (snapshot.event.allowedPages[0] || "welcome");
+    if (lastAdminStageRef.current === null) {
+      lastAdminStageRef.current = snapshot.event.currentStage;
+      setPage(fallbackPage);
+      return;
+    }
+    if (lastAdminStageRef.current !== snapshot.event.currentStage) {
+      lastAdminStageRef.current = snapshot.event.currentStage;
+      setPage(fallbackPage);
+      return;
+    }
+    if (!currentPageAllowed(snapshot, page)) setPage(fallbackPage);
+  }, [snapshot, snapshot.event.currentStage, allowedKey, page]);
 
   const allowed = currentPageAllowed(snapshot, page);
   const visibleStages = STAGES.filter((s) => currentPageAllowed(snapshot, s.key));

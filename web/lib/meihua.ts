@@ -1,5 +1,5 @@
 export type TrigramName = "乾" | "兌" | "離" | "震" | "巽" | "坎" | "艮" | "坤";
-export type SourceType = "sweep_random" | "focused_true" | "distracted_random" | "focused_reversed";
+export type SourceType = "sweep_random" | "focused_true" | "distracted_random";
 
 export type EarthlyBranchName = "子" | "丑" | "寅" | "卯" | "辰" | "巳" | "午" | "未" | "申" | "酉" | "戌" | "亥";
 
@@ -174,7 +174,6 @@ export function sourceLabel(source: SourceType) {
   return {
     sweep_random: "掃地隨機卦",
     focused_true: "專注真卦",
-    distracted_random: "分心隨機卦",
-    focused_reversed: "上下卦反置對照"
+    distracted_random: "分心隨機卦"
   }[source];
 }
