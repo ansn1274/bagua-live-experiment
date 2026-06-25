@@ -91,8 +91,8 @@ export type PublicParticipantData = {
 };
 
 export type LocalPrivateData = {
-  scenario: string;
-  question: string;
+  domain: string;
+  supplement: string;
   gptPrompt: string;
   gptRaw: string;
   parsedCards: ParsedCard[];

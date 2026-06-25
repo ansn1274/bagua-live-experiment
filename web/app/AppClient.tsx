@@ -78,6 +78,24 @@ type StatsMode = "round1" | "round2" | "combined";
 type AdminTab = "session" | "qa" | "wordcloud" | "sweep" | "quiz" | "stats" | "export";
 
 const SOURCE_ORDER: SourceType[] = ["sweep_random", "focused_true", "distracted_random"];
+const CASTING_DOMAINS = [
+  "事業",
+  "創業",
+  "錢財",
+  "愛情",
+  "婚姻",
+  "子女",
+  "健康",
+  "旅遊",
+  "考運",
+  "課業",
+  "人際",
+  "家庭",
+  "訴訟",
+  "遷居",
+  "尋物/人",
+  "其他"
+];
 
 const QUIZ = [
   { q: "☲ 是哪一卦？", options: ["乾", "離", "坎", "艮"], answer: "離" },
@@ -311,7 +329,7 @@ function WelcomePanel({
         <p>恢復碼</p>
         <strong>{participant?.recoveryCode || "------"}</strong>
       </div>
-      <p className="muted">請不要用無痕模式。若瀏覽器資料消失，但 URL 還有 pid 或你記得恢復碼，網站可以取回掃地、測驗、卦象與統計摘要；起卦問題與 GPT 回覆仍只在你自己的裝置。</p>
+      <p className="muted">請不要用無痕模式。若瀏覽器資料消失，但 URL 還有 pid 或你記得恢復碼，網站可以取回掃地、測驗、卦象與統計摘要；占問領域、補充文字與 GPT 回覆仍只在你自己的裝置。</p>
       <div className="inline-form">
         <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="輸入匿名 ID 或恢復碼" />
         <button onClick={() => onRecover(code)}>恢復</button>
@@ -763,7 +781,7 @@ function CastingPanel({ snapshot, participant, privateData, updatePrivate, updat
         <ShieldCheck />
         <div>
           <strong>起卦隱私提醒</strong>
-          <p>你的占卜問題、prompt、My GPT 回覆只存在自己的裝置；講者與其他人看不到。My GPT 也會在你自己的帳號中執行。</p>
+          <p>你具體想問的問題請在心中默想，不需要輸入。領域、prompt、My GPT 回覆只存在自己的裝置；講者與其他人看不到。My GPT 也會在你自己的帳號中執行。</p>
           <p>請不要使用無痕模式；若 localStorage 消失，私密內容無法恢復。</p>
         </div>
       </div>
@@ -774,12 +792,16 @@ function CastingPanel({ snapshot, participant, privateData, updatePrivate, updat
           <h2>起卦：問題與專注隨機數</h2>
         </div>
       </div>
-      <label>大概場景
-        <textarea value={privateData.scenario} onChange={(e) => updatePrivate((draft) => { draft.scenario = e.target.value; })} rows={4} placeholder="例如：最近在想要不要參加校隊選拔，但段考快到了，家人也希望我先顧成績。" />
+      <label>領域類型
+        <select value={privateData.domain} onChange={(e) => updatePrivate((draft) => { draft.domain = e.target.value; })}>
+          <option value="">請選擇</option>
+          {CASTING_DOMAINS.map((domain) => <option key={domain} value={domain}>{domain}</option>)}
+        </select>
       </label>
-      <label>你真正想問的問題
-        <textarea value={privateData.question} onChange={(e) => updatePrivate((draft) => { draft.question = e.target.value; })} rows={4} placeholder="例如：我該不該報名這次校隊選拔？這段文字只存在你的裝置，不會上傳。" />
+      <label>極短補充，選填，30 字以內
+        <input value={privateData.supplement} maxLength={30} onChange={(e) => updatePrivate((draft) => { draft.supplement = e.target.value.slice(0, 30); })} placeholder="例如：遠距關係、升學選擇、失聯朋友" />
       </label>
+      <p className="muted">不要輸入姓名、事件細節、已知結果或明確線索。完整問題只在心中默想。</p>
       {existing ? (
         <div className="done-box">
           <Check />
@@ -798,7 +820,7 @@ function CastingPanel({ snapshot, participant, privateData, updatePrivate, updat
               <input inputMode="numeric" value={n2} onChange={(e) => setN2(e.target.value.replace(/\D/g, ""))} />
             </label>
           </div>
-          <button className="primary" disabled={!participant || !n1 || !n2 || !privateData.question.trim()} onClick={() => {
+          <button className="primary" disabled={!participant || !n1 || !n2 || !privateData.domain.trim()} onClick={() => {
             if (!participant) return;
             const branch = currentEarthlyBranch();
             updateCloud((draft) => {
@@ -936,7 +958,7 @@ function PromptPanel({ snapshot, participant, privateData, updateCloud, updatePr
   const hasAllSources = SOURCE_ORDER.every((source) => sources.some((s) => s.sourceType === source));
   const hasFocusedAndSweep = SOURCE_ORDER.filter((source) => source !== "distracted_random").every((source) => sources.some((s) => s.sourceType === source));
   const missingDistracted = hasFocusedAndSweep && !sources.some((s) => s.sourceType === "distracted_random");
-  const ready = hasAllSources && mappings.length === 3 && !!privateData.question.trim();
+  const ready = hasAllSources && mappings.length === 3 && !!privateData.domain.trim();
   const prompt = ready ? buildMyGptUserPrompt(privateData, sources, mappings) : "";
   const [raw, setRaw] = useState(privateData.gptRaw);
   const [message, setMessage] = useState("");
@@ -963,7 +985,7 @@ function PromptPanel({ snapshot, participant, privateData, updateCloud, updatePr
         updateCloud((draft) => upsertRandomSource(draft, participant.id, roundId, "distracted_random", a, b, "auto_generated_not_participant_input"));
       }}>用系統自動亂數補分心對照</button>}
       {hasAllSources && !mappings.length && <p className="warn">三組卦已完成，請先鎖定 A/B/C 盲化順序，再複製 prompt。</p>}
-      {hasAllSources && mappings.length === 3 && !privateData.question.trim() && <p className="warn">請先在起卦頁填入你的問題；問題只存在本機。</p>}
+      {hasAllSources && mappings.length === 3 && !privateData.domain.trim() && <p className="warn">請先在起卦頁選擇領域類型；領域與補充文字只存在本機。</p>}
       <textarea value={prompt} readOnly rows={16} />
       <div className="actions">
         <button disabled={!ready} onClick={() => void copyText(prompt).then(() => setMessage("Prompt 已複製。")).catch(() => setMessage("複製失敗，請手動全選複製。"))}>複製 prompt</button>
@@ -1462,7 +1484,7 @@ function AdminPanel({ snapshot, updateCloud }: {
 
       {adminTab === "export" && <section className="panel-card wide">
         <h2>Export</h2>
-        <p className="muted">匯出資料不包含占卜問題、prompt、GPT raw output 或 statement 原文。</p>
+        <p className="muted">匯出資料不包含占問領域、補充文字、prompt、GPT raw output 或 statement 原文。</p>
         <button onClick={() => {
           const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json;charset=utf-8" });
           const url = URL.createObjectURL(blob);
@@ -1506,7 +1528,7 @@ function ProgressPanel({ snapshot, participant, privateData }: { snapshot: Cloud
         <p>{pub?.sweepCompleted ? "✓" : "×"} 掃地完成</p>
         <p>{pub?.focused ? "✓" : "×"} 專注真卦數字</p>
         <p>{pub?.distracted ? "✓" : "×"} 分心隨機數</p>
-        <p>{privateData.question ? "✓" : "×"} 起卦問題在本機</p>
+        <p>{privateData.domain ? "✓" : "×"} 起卦領域在本機</p>
         <p>{privateData.gptPrompt ? "✓" : "×"} Prompt 在本機</p>
         <p>{privateData.parsedCards.length ? "✓" : "×"} GPT JSON 在本機</p>
         <p>{pub?.ratingSubmitted ? "✓" : "×"} 評分摘要已送出</p>

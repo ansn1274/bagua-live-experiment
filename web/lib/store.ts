@@ -164,8 +164,8 @@ export const DEFAULT_STAGE_PRESETS: StagePreset[] = [
 ];
 
 export const DEFAULT_PRIVATE: LocalPrivateData = {
-  scenario: "",
-  question: "",
+  domain: "",
+  supplement: "",
   gptPrompt: "",
   gptRaw: "",
   parsedCards: []
