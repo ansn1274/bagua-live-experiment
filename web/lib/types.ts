@@ -176,6 +176,7 @@ export type QuizLiveQuestion = {
   prompt: string;
   options?: string[];
   answer?: string;
+  className?: string;
 };
 
 export type QuizLiveSession = {

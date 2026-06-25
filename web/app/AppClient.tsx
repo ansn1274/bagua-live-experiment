@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import cloud from "d3-cloud";
+import quizBank from "../data/quiz.json";
 import {
   BarChart3,
   Check,
@@ -98,31 +99,64 @@ const CASTING_DOMAINS = [
   "其他"
 ];
 
-const QUIZ = [
-  { q: "☲ 是哪一卦？", options: ["乾", "離", "坎", "艮"], answer: "離" },
-  { q: "震卦五行屬什麼？", options: ["木", "火", "土", "水"], answer: "木" },
-  { q: "坎卦常象徵什麼？", options: ["顯現", "風險", "承載", "喜悅"], answer: "風險" },
-  { q: "動爻在下卦時，下卦是？", options: ["體卦", "用卦", "互卦", "變卦"], answer: "用卦" },
-  { q: "火剋哪一個五行？", options: ["金", "木", "水", "土"], answer: "金" },
-  { q: "乾卦五行屬什麼？", options: ["金", "木", "火", "土"], answer: "金" },
-  { q: "坤卦常象徵什麼？", options: ["天", "地", "雷", "風"], answer: "地" },
-  { q: "兌卦常象徵什麼？", options: ["喜悅", "險陷", "停止", "入伏"], answer: "喜悅" },
-  { q: "艮卦常象徵什麼？", options: ["動", "止", "麗", "順"], answer: "止" },
-  { q: "巽卦五行屬什麼？", options: ["木", "土", "金", "水"], answer: "木" },
-  { q: "兩數起卦中，動爻母數現在怎麼算？", options: ["第一數", "第二數", "兩數相加", "兩數相加加時間地支數"], answer: "兩數相加加時間地支數" },
-  { q: "餘數為 0 時，mod 8 作幾？", options: ["0", "1", "8", "重新抽"], answer: "8" }
-];
+type QuizBankItem = {
+  class?: string;
+  q: string;
+  options: string[];
+  answer: string;
+};
+
+const QUIZ = (quizBank as QuizBankItem[]).filter((item) => (
+  item?.q &&
+  Array.isArray(item.options) &&
+  item.options.length === 4 &&
+  item.options.includes(item.answer)
+));
+
+function shuffled<T>(items: T[]) {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function pickQuizByClass(count: number) {
+  const target = Math.max(5, Math.min(10, count));
+  const buckets = new Map<string, QuizBankItem[]>();
+  shuffled(QUIZ).forEach((item) => {
+    const className = item.class || "未分類";
+    buckets.set(className, [...(buckets.get(className) || []), item]);
+  });
+  const picked: QuizBankItem[] = [];
+  let classOrder = shuffled([...buckets.keys()]);
+  while (picked.length < target && classOrder.length) {
+    let addedThisRound = false;
+    for (const className of classOrder) {
+      const bucket = buckets.get(className);
+      const item = bucket?.shift();
+      if (!item) continue;
+      picked.push(item);
+      addedThisRound = true;
+      if (picked.length >= target) break;
+    }
+    classOrder = shuffled(classOrder.filter((className) => (buckets.get(className)?.length || 0) > 0));
+    if (!addedThisRound) break;
+  }
+  return picked;
+}
 
 function buildQuizQuestions(count: number): QuizLiveQuestion[] {
-  const shuffled = [...QUIZ].sort(() => Math.random() - 0.5);
-  const picked = shuffled.slice(0, Math.max(5, Math.min(10, count)));
+  const picked = pickQuizByClass(count);
   return [
     ...picked.map((q, i) => ({
       id: `q${i + 1}_${Math.random().toString(36).slice(2, 8)}`,
       kind: "choice" as const,
       prompt: q.q,
       options: q.options,
-      answer: q.answer
+      answer: q.answer,
+      className: q.class
     })),
     {
       id: `random_${Math.random().toString(36).slice(2, 8)}`,
