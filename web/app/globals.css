@@ -353,9 +353,9 @@ th { color: var(--ink); background: rgba(122, 100, 58, 0.08); }
   height: 62vh;
   overflow: hidden;
   touch-action: none;
-  border: 2px solid #6a733f;
+  border: 2px solid #536333;
   border-radius: var(--radius);
-  background: #738a4f;
+  background: #4f663c;
   margin-bottom: 0.85rem;
   cursor: grab;
   box-shadow: none;
@@ -369,7 +369,12 @@ th { color: var(--ink); background: rgba(122, 100, 58, 0.08); }
   opacity: 0.95;
   user-select: none;
   border: 0;
+  outline: none;
+  box-shadow: none;
   background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  -webkit-tap-highlight-color: transparent;
   width: 2rem;
   height: 2rem;
   display: grid;
@@ -379,6 +384,10 @@ th { color: var(--ink); background: rgba(122, 100, 58, 0.08); }
   transition: transform 120ms ease, opacity 120ms ease;
   font-weight: 800;
   pointer-events: none;
+}
+.sweep-item:focus,
+.sweep-item:focus-visible {
+  outline: none;
 }
 .sweep-item.plum {
   width: 1.55rem;
@@ -391,13 +400,13 @@ th { color: var(--ink); background: rgba(122, 100, 58, 0.08); }
   width: 0.62rem;
   height: 0.62rem;
   border-radius: 999px;
-  background: #f1a2ad;
+  background: #ffe4ec;
   box-shadow:
-    0 -0.42rem 0 #f1a2ad,
-    0.4rem -0.13rem 0 #e98999,
-    0.25rem 0.34rem 0 #d97086,
-    -0.25rem 0.34rem 0 #e98999,
-    -0.4rem -0.13rem 0 #f1a2ad;
+    0 -0.42rem 0 #ffe4ec,
+    0.4rem -0.13rem 0 #ffe4ec,
+    0.25rem 0.34rem 0 #ffe4ec,
+    -0.25rem 0.34rem 0 #ffe4ec,
+    -0.4rem -0.13rem 0 #ffe4ec;
 }
 .sweep-item.plum::after {
   content: "";
@@ -405,7 +414,7 @@ th { color: var(--ink); background: rgba(122, 100, 58, 0.08); }
   width: 0.22rem;
   height: 0.22rem;
   border-radius: 999px;
-  background: #ffd8a8;
+  background: #fff6c8;
 }
 .sweep-item.leaf {
   width: 1.55rem;
@@ -418,17 +427,11 @@ th { color: var(--ink); background: rgba(122, 100, 58, 0.08); }
   width: 1.28rem;
   height: 0.76rem;
   border-radius: 100% 0 100% 0;
-  background: #82b765;
+  background: #8fbf74;
   transform: rotate(-33deg);
 }
 .sweep-item.leaf::after {
-  content: "";
-  position: absolute;
-  width: 0.72rem;
-  height: 0.08rem;
-  border-radius: 999px;
-  background: rgba(65, 110, 47, 0.32);
-  transform: rotate(-33deg);
+  content: none;
 }
 .sweep-item.trigram {
   color: var(--ink);
