@@ -54,7 +54,7 @@ export const DEFAULT_EVENT: EventState = {
   title: "梅花易數三盲互動實驗",
   updatedAt: EVENT_EPOCH,
   activeSessionId: DEFAULT_SESSION_ID,
-  activeRoundId: "round-1",
+  activeRoundId: DEFAULT_SESSION_ID,
   currentStage: "qa",
   allowedPages: ["welcome", "qa", "wordcloud", "sweep"],
   revealEnabled: false,
@@ -66,6 +66,7 @@ export const DEFAULT_EVENT: EventState = {
   quizQuestionSeconds: 15,
   showScreenPanel: false,
   activeWordCloudSessionId: undefined,
+  wordCloudEnabled: false,
   wordCloudMaxEntriesPerParticipant: 3,
   roundIndex: 1,
   practiceStep: 1
@@ -75,7 +76,20 @@ export const DEFAULT_SESSIONS: ExperimentSession[] = [
   {
     id: DEFAULT_SESSION_ID,
     title: "預設場次",
-    roundIds: ["round-1", "round-2"],
+    roundId: DEFAULT_SESSION_ID,
+    roundIds: [],
+    currentStage: DEFAULT_EVENT.currentStage,
+    allowedPages: [...DEFAULT_EVENT.allowedPages],
+    showScreenPanel: DEFAULT_EVENT.showScreenPanel,
+    activeWordCloudSessionId: DEFAULT_EVENT.activeWordCloudSessionId,
+    wordCloudEnabled: DEFAULT_EVENT.wordCloudEnabled,
+    wordCloudMaxEntriesPerParticipant: DEFAULT_EVENT.wordCloudMaxEntriesPerParticipant,
+    sweepPlumDensity: DEFAULT_EVENT.sweepPlumDensity,
+    sweepPlumStdDev: DEFAULT_EVENT.sweepPlumStdDev,
+    sweepLeafDensity: DEFAULT_EVENT.sweepLeafDensity,
+    sweepLeafStdDev: DEFAULT_EVENT.sweepLeafStdDev,
+    quizQuestionSeconds: DEFAULT_EVENT.quizQuestionSeconds,
+    practiceStep: DEFAULT_EVENT.practiceStep,
     createdAt: EVENT_EPOCH
   }
 ];
@@ -171,10 +185,73 @@ export const DEFAULT_PRIVATE: LocalPrivateData = {
   parsedCards: []
 };
 
+function normalizeSession(session: Partial<ExperimentSession>, fallbackEvent = DEFAULT_EVENT): ExperimentSession {
+  const id = session.id || DEFAULT_SESSION_ID;
+  const legacyRoundIds = Array.isArray(session.roundIds) ? session.roundIds : [];
+  return {
+    id,
+    title: session.title || `Session ${id}`,
+    roundId: session.roundId || id,
+    roundIds: legacyRoundIds.filter((roundId) => roundId && roundId !== (session.roundId || id)),
+    currentStage: session.currentStage || fallbackEvent.currentStage,
+    allowedPages: session.allowedPages?.length ? [...session.allowedPages] : [...fallbackEvent.allowedPages],
+    showScreenPanel: session.showScreenPanel ?? fallbackEvent.showScreenPanel,
+    activeWordCloudSessionId: session.activeWordCloudSessionId ?? fallbackEvent.activeWordCloudSessionId,
+    wordCloudEnabled: session.wordCloudEnabled ?? fallbackEvent.wordCloudEnabled ?? false,
+    wordCloudMaxEntriesPerParticipant: session.wordCloudMaxEntriesPerParticipant ?? fallbackEvent.wordCloudMaxEntriesPerParticipant,
+    sweepPlumDensity: session.sweepPlumDensity ?? fallbackEvent.sweepPlumDensity,
+    sweepPlumStdDev: session.sweepPlumStdDev ?? fallbackEvent.sweepPlumStdDev,
+    sweepLeafDensity: session.sweepLeafDensity ?? fallbackEvent.sweepLeafDensity,
+    sweepLeafStdDev: session.sweepLeafStdDev ?? fallbackEvent.sweepLeafStdDev,
+    quizQuestionSeconds: session.quizQuestionSeconds ?? fallbackEvent.quizQuestionSeconds,
+    practiceStep: session.practiceStep ?? fallbackEvent.practiceStep,
+    createdAt: session.createdAt || now()
+  };
+}
+
+function eventFromSession(event: EventState, session: ExperimentSession): EventState {
+  return {
+    ...event,
+    activeSessionId: session.id,
+    activeRoundId: session.roundId,
+    currentStage: session.currentStage,
+    allowedPages: [...session.allowedPages],
+    showScreenPanel: session.showScreenPanel,
+    activeWordCloudSessionId: session.activeWordCloudSessionId,
+    wordCloudEnabled: session.wordCloudEnabled,
+    wordCloudMaxEntriesPerParticipant: session.wordCloudMaxEntriesPerParticipant,
+    sweepPlumDensity: session.sweepPlumDensity,
+    sweepPlumStdDev: session.sweepPlumStdDev,
+    sweepLeafDensity: session.sweepLeafDensity,
+    sweepLeafStdDev: session.sweepLeafStdDev,
+    quizQuestionSeconds: session.quizQuestionSeconds,
+    practiceStep: session.practiceStep,
+    roundIndex: 1
+  };
+}
+
+function syncEventToActiveSession(snapshot: CloudSnapshot) {
+  const session = snapshot.sessions.find((item) => item.id === snapshot.event.activeSessionId);
+  if (!session) return;
+  session.roundId = session.roundId || session.id;
+  session.currentStage = snapshot.event.currentStage;
+  session.allowedPages = [...snapshot.event.allowedPages];
+  session.showScreenPanel = snapshot.event.showScreenPanel;
+  session.activeWordCloudSessionId = snapshot.event.activeWordCloudSessionId;
+  session.wordCloudEnabled = snapshot.event.wordCloudEnabled;
+  session.wordCloudMaxEntriesPerParticipant = snapshot.event.wordCloudMaxEntriesPerParticipant;
+  session.sweepPlumDensity = snapshot.event.sweepPlumDensity;
+  session.sweepPlumStdDev = snapshot.event.sweepPlumStdDev;
+  session.sweepLeafDensity = snapshot.event.sweepLeafDensity;
+  session.sweepLeafStdDev = snapshot.event.sweepLeafStdDev;
+  session.quizQuestionSeconds = snapshot.event.quizQuestionSeconds;
+  session.practiceStep = snapshot.event.practiceStep;
+}
+
 export function createEmptyCloud(): CloudSnapshot {
   return {
     event: { ...DEFAULT_EVENT, allowedPages: [...DEFAULT_EVENT.allowedPages] },
-    sessions: DEFAULT_SESSIONS.map((session) => ({ ...session, roundIds: [...session.roundIds] as [string, string] })),
+    sessions: DEFAULT_SESSIONS.map((session) => ({ ...session, allowedPages: [...session.allowedPages], roundIds: [...(session.roundIds || [])] })),
     stagePresets: DEFAULT_STAGE_PRESETS.map((preset) => ({ ...preset, allowedPages: [...preset.allowedPages] })),
     participants: [],
     qa: [],
@@ -193,18 +270,16 @@ export function createEmptyCloud(): CloudSnapshot {
 
 function normalizeCloud(snapshot: CloudSnapshot): CloudSnapshot {
   const base = createEmptyCloud();
+  const sessions = (snapshot.sessions?.length ? snapshot.sessions : base.sessions).map((session) => normalizeSession(session, snapshot.event || base.event));
+  const activeSession = sessions.find((session) => session.id === snapshot.event?.activeSessionId) || sessions[0];
+  const event = activeSession
+    ? eventFromSession({ ...base.event, ...(snapshot.event || {}), allowedPages: snapshot.event?.allowedPages || [...base.event.allowedPages] }, activeSession)
+    : { ...base.event, ...(snapshot.event || {}), allowedPages: snapshot.event?.allowedPages || [...base.event.allowedPages] };
   return {
     ...base,
     ...snapshot,
-    event: {
-      ...base.event,
-      ...(snapshot.event || {}),
-      allowedPages: snapshot.event?.allowedPages || [...base.event.allowedPages]
-    },
-    sessions: (snapshot.sessions?.length ? snapshot.sessions : base.sessions).map((session) => ({
-      ...session,
-      roundIds: session.roundIds?.length === 2 ? session.roundIds : [`${session.id}:round-1`, `${session.id}:round-2`] as [string, string]
-    })),
+    event,
+    sessions,
     stagePresets: (snapshot.stagePresets?.length ? snapshot.stagePresets : base.stagePresets).map((preset) => ({
       ...preset,
       allowedPages: preset.allowedPages || []
@@ -473,19 +548,33 @@ export function createWordCloudSession(snapshot: CloudSnapshot, prompt: string) 
   const session: WordCloudSession = {
     id: randomId("wc"),
     eventId: snapshot.event.id,
+    experimentSessionId: snapshot.event.activeSessionId,
     prompt: prompt.trim() || "請輸入你現在想到的一個關鍵詞",
-    active: true,
+    active: false,
     createdAt: now()
   };
-  snapshot.wordCloudSessions.forEach((s) => { s.active = false; });
   snapshot.wordCloudSessions.unshift(session);
-  snapshot.event.activeWordCloudSessionId = session.id;
   touchEvent(snapshot);
 }
 
 export function activateWordCloudSession(snapshot: CloudSnapshot, sessionId: string) {
   snapshot.wordCloudSessions.forEach((s) => { s.active = s.id === sessionId; });
   snapshot.event.activeWordCloudSessionId = sessionId;
+  snapshot.event.wordCloudEnabled = true;
+  touchEvent(snapshot);
+}
+
+export function setWordCloudEnabled(snapshot: CloudSnapshot, enabled: boolean) {
+  snapshot.event.wordCloudEnabled = enabled;
+  if (!enabled) {
+    snapshot.wordCloudSessions.forEach((s) => { s.active = false; });
+  } else {
+    const activeId = snapshot.event.activeWordCloudSessionId || snapshot.wordCloudSessions.find((s) => s.experimentSessionId === snapshot.event.activeSessionId || !s.experimentSessionId)?.id;
+    if (activeId) {
+      snapshot.event.activeWordCloudSessionId = activeId;
+      snapshot.wordCloudSessions.forEach((s) => { s.active = s.id === activeId; });
+    }
+  }
   touchEvent(snapshot);
 }
 
@@ -610,14 +699,7 @@ export function activeSession(snapshot: CloudSnapshot) {
 
 export function sessionRoundIds(snapshot: CloudSnapshot, sessionIds: string[]) {
   const ids = new Set(sessionIds);
-  return snapshot.sessions.filter((session) => ids.has(session.id)).flatMap((session) => session.roundIds);
-}
-
-export function setActiveSessionRound(snapshot: CloudSnapshot, roundIndex: 1 | 2) {
-  const session = activeSession(snapshot);
-  snapshot.event.activeRoundId = session.roundIds[roundIndex - 1];
-  snapshot.event.roundIndex = roundIndex;
-  touchEvent(snapshot);
+  return snapshot.sessions.filter((session) => ids.has(session.id)).flatMap((session) => [session.roundId || session.id, ...(session.roundIds || [])]);
 }
 
 export function createExperimentSession(snapshot: CloudSnapshot, title: string) {
@@ -625,12 +707,24 @@ export function createExperimentSession(snapshot: CloudSnapshot, title: string) 
   const session: ExperimentSession = {
     id,
     title: title.trim() || `新場次 ${snapshot.sessions.length + 1}`,
-    roundIds: [`${id}:round-1`, `${id}:round-2`],
+    roundId: id,
+    roundIds: [],
+    currentStage: DEFAULT_EVENT.currentStage,
+    allowedPages: [...DEFAULT_EVENT.allowedPages],
+    showScreenPanel: DEFAULT_EVENT.showScreenPanel,
+    activeWordCloudSessionId: undefined,
+    wordCloudEnabled: false,
+    wordCloudMaxEntriesPerParticipant: snapshot.event.wordCloudMaxEntriesPerParticipant,
+    sweepPlumDensity: snapshot.event.sweepPlumDensity,
+    sweepPlumStdDev: snapshot.event.sweepPlumStdDev,
+    sweepLeafDensity: snapshot.event.sweepLeafDensity,
+    sweepLeafStdDev: snapshot.event.sweepLeafStdDev,
+    quizQuestionSeconds: snapshot.event.quizQuestionSeconds,
+    practiceStep: 1,
     createdAt: now()
   };
   snapshot.sessions.unshift(session);
-  snapshot.event.activeSessionId = id;
-  snapshot.event.activeRoundId = session.roundIds[0];
+  snapshot.event = eventFromSession(snapshot.event, session);
   snapshot.event.roundIndex = 1;
   snapshot.quizSession = null;
   touchEvent(snapshot);
@@ -640,8 +734,7 @@ export function createExperimentSession(snapshot: CloudSnapshot, title: string) 
 export function activateExperimentSession(snapshot: CloudSnapshot, sessionId: string) {
   const session = snapshot.sessions.find((s) => s.id === sessionId);
   if (!session) return;
-  snapshot.event.activeSessionId = session.id;
-  snapshot.event.activeRoundId = session.roundIds[Math.max(0, Math.min(1, snapshot.event.roundIndex - 1))];
+  snapshot.event = eventFromSession(snapshot.event, normalizeSession(session, snapshot.event));
   snapshot.quizSession = null;
   touchEvent(snapshot);
 }
@@ -653,7 +746,7 @@ export function createStagePreset(snapshot: CloudSnapshot, name: string) {
     currentStage: snapshot.event.currentStage,
     allowedPages: [...snapshot.event.allowedPages],
     showScreenPanel: snapshot.event.showScreenPanel,
-    wordCloudEnabled: !!snapshot.event.activeWordCloudSessionId,
+    wordCloudEnabled: snapshot.event.wordCloudEnabled,
     wordCloudMaxEntriesPerParticipant: snapshot.event.wordCloudMaxEntriesPerParticipant,
     sweepPlumDensity: snapshot.event.sweepPlumDensity,
     sweepPlumStdDev: snapshot.event.sweepPlumStdDev,
@@ -674,6 +767,7 @@ export function applyStagePreset(snapshot: CloudSnapshot, presetId: string) {
   snapshot.event.allowedPages = [...preset.allowedPages];
   if (!snapshot.event.allowedPages.includes(preset.currentStage)) snapshot.event.allowedPages.push(preset.currentStage);
   snapshot.event.showScreenPanel = preset.showScreenPanel;
+  snapshot.event.wordCloudEnabled = preset.wordCloudEnabled;
   snapshot.event.wordCloudMaxEntriesPerParticipant = preset.wordCloudMaxEntriesPerParticipant;
   snapshot.event.sweepPlumDensity = preset.sweepPlumDensity;
   snapshot.event.sweepPlumStdDev = preset.sweepPlumStdDev;
@@ -681,13 +775,17 @@ export function applyStagePreset(snapshot: CloudSnapshot, presetId: string) {
   snapshot.event.sweepLeafStdDev = preset.sweepLeafStdDev;
   snapshot.event.quizQuestionSeconds = preset.quizQuestionSeconds;
   snapshot.event.practiceStep = preset.practiceStep;
-  if (!preset.wordCloudEnabled) {
+  if (!snapshot.event.wordCloudEnabled) {
     snapshot.wordCloudSessions.forEach((session) => { session.active = false; });
-    snapshot.event.activeWordCloudSessionId = undefined;
   } else {
-    const target = snapshot.event.activeWordCloudSessionId || snapshot.wordCloudSessions[0]?.id;
+    const target = snapshot.event.activeWordCloudSessionId || snapshot.wordCloudSessions.find((s) => s.experimentSessionId === snapshot.event.activeSessionId || !s.experimentSessionId)?.id;
     if (target) activateWordCloudSession(snapshot, target);
   }
+  touchEvent(snapshot);
+}
+
+export function deleteStagePreset(snapshot: CloudSnapshot, presetId: string) {
+  snapshot.stagePresets = snapshot.stagePresets.filter((preset) => preset.id !== presetId);
   touchEvent(snapshot);
 }
 
@@ -706,6 +804,7 @@ export function toggleAllowed(snapshot: CloudSnapshot, stage: StageKey) {
 }
 
 export function touchEvent(snapshot: CloudSnapshot) {
+  syncEventToActiveSession(snapshot);
   snapshot.event.updatedAt = now();
 }
 

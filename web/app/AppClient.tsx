@@ -27,6 +27,7 @@ import {
   createExperimentSession,
   createStagePreset,
   createWordCloudSession,
+  deleteStagePreset,
   ensureBlindMappings,
   ensureParticipant,
   fetchRemoteCloud,
@@ -51,9 +52,9 @@ import {
   saveSweep,
   saveWordCloudEntry,
   setStage,
+  setWordCloudEnabled,
   startQuizLobby,
   sessionRoundIds,
-  setActiveSessionRound,
   touchEvent,
   toggleAllowed,
   toggleQa,
@@ -74,7 +75,6 @@ import type {
   SweepVisualItem
 } from "../lib/types";
 
-type StatsMode = "round1" | "round2" | "combined";
 type AdminTab = "session" | "qa" | "wordcloud" | "sweep" | "quiz" | "stats" | "export";
 
 const SOURCE_ORDER: SourceType[] = ["sweep_random", "focused_true", "distracted_random"];
@@ -178,16 +178,16 @@ async function copyText(text: string) {
 }
 
 function getRoundId(snapshot: CloudSnapshot) {
-  return snapshot.event.activeRoundId;
+  return snapshot.sessions.find((session) => session.id === snapshot.event.activeSessionId)?.roundId || snapshot.event.activeRoundId || snapshot.event.activeSessionId;
 }
 
 function eligibleSources(snapshot: CloudSnapshot, participantId: string, roundId = getRoundId(snapshot)) {
   const current = snapshot.randomSources.filter((s) => s.participantId === participantId && s.roundId === roundId);
-  const firstRoundDistracted = snapshot.randomSources.find((s) => s.participantId === participantId && s.roundId === "round-1" && s.sourceType === "distracted_random");
+  const fallbackDistracted = snapshot.randomSources.find((s) => s.participantId === participantId && s.sourceType === "distracted_random");
   const rows = SOURCE_ORDER.map((source) => {
     const found = current.find((s) => s.sourceType === source);
     if (found) return found;
-    if (source === "distracted_random" && firstRoundDistracted) return { ...firstRoundDistracted, roundId };
+    if (source === "distracted_random" && fallbackDistracted) return { ...fallbackDistracted, roundId };
     return null;
   });
   return rows.filter(Boolean) as NonNullable<(typeof rows)[number]>[];
@@ -497,7 +497,7 @@ function WordCloudPanel({ snapshot, participant, updateCloud }: {
   updateCloud: (fn: (draft: CloudSnapshot) => void) => void;
 }) {
   const activeId = snapshot.event.activeWordCloudSessionId;
-  const session = snapshot.wordCloudSessions.find((s) => s.id === activeId && s.active);
+  const session = snapshot.event.wordCloudEnabled ? snapshot.wordCloudSessions.find((s) => s.id === activeId) : undefined;
   const [text, setText] = useState("");
   const entries = session ? snapshot.wordCloudEntries.filter((e) => e.sessionId === session.id) : [];
   const myCount = participant ? entries.filter((e) => e.participantId === participant.id).length : 0;
@@ -545,7 +545,8 @@ function WordCloudAdminPanel({ snapshot, updateCloud }: {
 }) {
   const [prompt, setPrompt] = useState("你現在對梅花易數最直覺想到的關鍵詞是什麼？");
   const activeId = snapshot.event.activeWordCloudSessionId;
-  const active = snapshot.wordCloudSessions.find((s) => s.id === activeId) || snapshot.wordCloudSessions[0];
+  const sessionClouds = snapshot.wordCloudSessions.filter((s) => s.experimentSessionId === snapshot.event.activeSessionId || !s.experimentSessionId);
+  const active = sessionClouds.find((s) => s.id === activeId) || sessionClouds[0];
   const entries = active ? snapshot.wordCloudEntries.filter((e) => e.sessionId === active.id) : [];
   const rows = wordCloudRows(entries.map((e) => e.text));
   return (
@@ -559,7 +560,10 @@ function WordCloudAdminPanel({ snapshot, updateCloud }: {
       </div>
       <div className="inline-form">
         <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="定義這次文字雲題目" />
-        <button onClick={() => updateCloud((draft) => createWordCloudSession(draft, prompt))}>新建並啟用</button>
+        <button onClick={() => updateCloud((draft) => createWordCloudSession(draft, prompt))}>新建文字雲</button>
+        <button className={snapshot.event.wordCloudEnabled ? "selected" : ""} onClick={() => updateCloud((draft) => setWordCloudEnabled(draft, !draft.event.wordCloudEnabled))}>
+          {snapshot.event.wordCloudEnabled ? "停用目前文字雲" : "啟用文字雲"}
+        </button>
       </div>
       <div className="inline-form">
         <label>每人可輸入次數
@@ -567,9 +571,9 @@ function WordCloudAdminPanel({ snapshot, updateCloud }: {
         </label>
       </div>
       <div className="word-session-list">
-        {snapshot.wordCloudSessions.map((s) => (
+        {sessionClouds.map((s) => (
           <button key={s.id} className={s.id === active?.id ? "selected" : ""} onClick={() => updateCloud((draft) => activateWordCloudSession(draft, s.id))}>
-            {s.prompt}<span>{snapshot.wordCloudEntries.filter((e) => e.sessionId === s.id).length}</span>
+            {s.prompt}<span>{s.id === snapshot.event.activeWordCloudSessionId && snapshot.event.wordCloudEnabled ? "啟用中 · " : ""}{snapshot.wordCloudEntries.filter((e) => e.sessionId === s.id).length}</span>
           </button>
         ))}
       </div>
@@ -1271,7 +1275,6 @@ function AdminPanel({ snapshot, updateCloud }: {
   updateCloud: (fn: (draft: CloudSnapshot) => void) => void;
 }) {
   const [adminTab, setAdminTab] = useState<AdminTab>("session");
-  const [statsMode, setStatsMode] = useState<StatsMode>("combined");
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>(() => [snapshot.event.activeSessionId]);
   const [stats, setStats] = useState<StatsResult | null>(null);
   const [quizCount, setQuizCount] = useState(7);
@@ -1281,7 +1284,7 @@ function AdminPanel({ snapshot, updateCloud }: {
     if (!selectedSessionIds.length && snapshot.event.activeSessionId) setSelectedSessionIds([snapshot.event.activeSessionId]);
   }, [selectedSessionIds.length, snapshot.event.activeSessionId]);
   const activeSession = snapshot.sessions.find((session) => session.id === snapshot.event.activeSessionId) || snapshot.sessions[0];
-  const activeSessionRoundIds = activeSession?.roundIds || [snapshot.event.activeRoundId];
+  const activeSessionRoundIds = activeSession ? sessionRoundIds(snapshot, [activeSession.id]) : [getRoundId(snapshot)];
   const liveSession = snapshot.quizSession;
   const liveRows = liveSession
     ? [...snapshot.quizAnswers.filter((a) => a.sessionId === liveSession.id && a.questionIndex >= 0).reduce((map, a) => {
@@ -1301,11 +1304,7 @@ function AdminPanel({ snapshot, updateCloud }: {
   const sweeps = snapshot.sweeps.filter((sweep) => activeSessionRoundIds.includes(sweep.roundId));
   const runStats = () => {
     const ids = selectedSessionIds.length ? selectedSessionIds : [snapshot.event.activeSessionId];
-    const roundIds = statsMode === "round1"
-      ? snapshot.sessions.filter((session) => ids.includes(session.id)).map((session) => session.roundIds[0])
-      : statsMode === "round2"
-        ? snapshot.sessions.filter((session) => ids.includes(session.id)).map((session) => session.roundIds[1])
-        : sessionRoundIds(snapshot, ids);
+    const roundIds = sessionRoundIds(snapshot, ids);
     setStats(computeStatsForRoundIds(snapshot, roundIds));
   };
   return (
@@ -1326,7 +1325,7 @@ function AdminPanel({ snapshot, updateCloud }: {
         <h2>Session Control</h2>
         <div className="panel-card inner">
           <h3>課程 / 測試 Session</h3>
-          <p className="muted">新 session 會建立乾淨的 Round 1/2 統計分組；舊 session 仍保留，可在統計頁選擇合併。</p>
+          <p className="muted">一個 session 就是一個獨立 round；第二輪演講請建立第二個 session，統計頁可以選擇單看或合併多個 session。</p>
           <div className="inline-form">
             <input value={newSessionTitle} onChange={(e) => setNewSessionTitle(e.target.value)} placeholder="新 session 名稱，例如：第二場演講" />
             <button onClick={() => {
@@ -1343,21 +1342,20 @@ function AdminPanel({ snapshot, updateCloud }: {
                 setSelectedSessionIds([session.id]);
                 setStats(null);
               }}>
-                {session.title}<span>{session.roundIds.map((roundId) => snapshot.ratings.filter((rating) => rating.roundId === roundId && rating.forcedChoice).length).reduce((a, b) => a + b, 0)} 評分</span>
+                {session.title}<span>{sessionRoundIds(snapshot, [session.id]).map((roundId) => snapshot.ratings.filter((rating) => rating.roundId === roundId && rating.forcedChoice).length).reduce((a, b) => a + b, 0)} 評分</span>
               </button>
             ))}
-          </div>
-          <div className="actions wrap">
-            <button onClick={() => updateCloud((draft) => setActiveSessionRound(draft, 1))}>本 session Round 1</button>
-            <button onClick={() => updateCloud((draft) => setActiveSessionRound(draft, 2))}>本 session Round 2</button>
           </div>
         </div>
         <div className="panel-card inner">
           <h3>Stage Presets</h3>
           <p className="muted">實際上課時可以直接套用 Step，會同步設定目前頁面、可見頁、文字雲狀態、掃地參數、測驗秒數與教學步驟。</p>
-          <div className="stage-grid compact">
+          <div className="preset-list">
             {snapshot.stagePresets.map((preset) => (
-              <button key={preset.id} onClick={() => updateCloud((draft) => applyStagePreset(draft, preset.id))}>{preset.name}</button>
+              <div className="preset-row" key={preset.id}>
+                <button onClick={() => updateCloud((draft) => applyStagePreset(draft, preset.id))}>{preset.name}</button>
+                <button className="danger" onClick={() => updateCloud((draft) => deleteStagePreset(draft, preset.id))}>刪除</button>
+              </div>
             ))}
           </div>
           <div className="inline-form">
@@ -1451,21 +1449,16 @@ function AdminPanel({ snapshot, updateCloud }: {
             <h2>完整統計檢定</h2>
           </div>
         </div>
-        <p className="muted">先選擇要納入的 session 與 round，再按按鈕執行統計；切換頁面或即時同步時不會自動重算。</p>
+        <p className="muted">先選擇要納入的 session，再按按鈕執行統計；切換頁面或即時同步時不會自動重算。</p>
         <div className="word-session-list">
           {snapshot.sessions.map((session) => (
             <button key={session.id} className={selectedSessionIds.includes(session.id) ? "selected" : ""} onClick={() => {
               setSelectedSessionIds((prev) => prev.includes(session.id) ? prev.filter((id) => id !== session.id) : [...prev, session.id]);
               setStats(null);
             }}>
-              {session.title}<span>{session.roundIds.join(" / ")}</span>
+              {session.title}<span>{session.roundId || session.id}</span>
             </button>
           ))}
-        </div>
-        <div className="segmented">
-          <button className={statsMode === "round1" ? "selected" : ""} onClick={() => { setStatsMode("round1"); setStats(null); }}>Round 1</button>
-          <button className={statsMode === "round2" ? "selected" : ""} onClick={() => { setStatsMode("round2"); setStats(null); }}>Round 2</button>
-          <button className={statsMode === "combined" ? "selected" : ""} onClick={() => { setStatsMode("combined"); setStats(null); }}>合併</button>
         </div>
         <div className="actions"><button className="primary" disabled={!selectedSessionIds.length} onClick={runStats}>執行統計計算</button></div>
         {!stats && <p className="warn">尚未執行統計。選好分組後按「執行統計計算」。</p>}
@@ -1618,7 +1611,7 @@ function ParticipantShell() {
 
       <div className="participant-layout">
         <aside className="mobile-nav">
-          <div className="participant-id">{participant?.id || "建立中"}<span>Round {snapshot.event.roundIndex}</span></div>
+          <div className="participant-id">{participant?.id || "建立中"}<span>{snapshot.sessions.find((session) => session.id === snapshot.event.activeSessionId)?.title || "Session"}</span></div>
           {visibleStages.map((s) => (
             <button key={s.key} className={page === s.key ? "selected" : ""} onClick={() => setPage(s.key)}>{s.label}</button>
           ))}
@@ -1648,9 +1641,9 @@ export function AdminPageShell() {
 }
 
 function ScreenPanel({ snapshot }: { snapshot: CloudSnapshot }) {
-  const stats = computeStats(snapshot, "combined");
+  const stats = computeStats(snapshot);
   const qa = snapshot.qa.filter((q) => !q.hidden).sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.likes - a.likes).slice(0, 8);
-  const activeWordCloud = snapshot.wordCloudSessions.find((s) => s.id === snapshot.event.activeWordCloudSessionId);
+  const activeWordCloud = snapshot.event.wordCloudEnabled ? snapshot.wordCloudSessions.find((s) => s.id === snapshot.event.activeWordCloudSessionId) : undefined;
   const cloudRows = activeWordCloud ? wordCloudRows(snapshot.wordCloudEntries.filter((e) => e.sessionId === activeWordCloud.id).map((e) => e.text)) : [];
   return (
     <div className="screen-grid">

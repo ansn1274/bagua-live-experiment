@@ -169,14 +169,9 @@ export function computeStatsForRoundIds(snapshot: CloudSnapshot, roundIds: strin
   };
 }
 
-export function computeStats(snapshot: CloudSnapshot, roundMode: "round1" | "round2" | "combined") : StatsResult {
+export function computeStats(snapshot: CloudSnapshot) : StatsResult {
   const session = snapshot.sessions.find((item) => item.id === snapshot.event.activeSessionId) || snapshot.sessions[0];
-  const fallbackRoundIds = session?.roundIds || ["round-1", "round-2"];
-  const roundIds = roundMode === "round1"
-    ? [fallbackRoundIds[0]]
-    : roundMode === "round2"
-      ? [fallbackRoundIds[1]]
-      : fallbackRoundIds;
+  const roundIds = session ? [session.roundId || session.id, ...(session.roundIds || [])] : [snapshot.event.activeRoundId];
   return computeStatsForRoundIds(snapshot, roundIds);
 }
 

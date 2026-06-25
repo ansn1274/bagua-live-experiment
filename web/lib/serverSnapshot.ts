@@ -11,7 +11,20 @@ function defaultSessions(): ExperimentSession[] {
   return [{
     id: DEFAULT_SESSION_ID,
     title: "預設場次",
-    roundIds: ["round-1", "round-2"],
+    roundId: DEFAULT_SESSION_ID,
+    roundIds: [],
+    currentStage: "qa",
+    allowedPages: ["welcome", "qa", "wordcloud", "sweep"],
+    showScreenPanel: false,
+    activeWordCloudSessionId: undefined,
+    wordCloudEnabled: false,
+    wordCloudMaxEntriesPerParticipant: 3,
+    sweepPlumDensity: 260,
+    sweepPlumStdDev: 35,
+    sweepLeafDensity: 330,
+    sweepLeafStdDev: 45,
+    quizQuestionSeconds: 15,
+    practiceStep: 1,
     createdAt: EVENT_EPOCH
   }];
 }
@@ -108,7 +121,7 @@ function emptySnapshot(): CloudSnapshot {
       title: "梅花易數三盲互動實驗",
       updatedAt: EVENT_EPOCH,
       activeSessionId: DEFAULT_SESSION_ID,
-      activeRoundId: "round-1",
+      activeRoundId: DEFAULT_SESSION_ID,
       currentStage: "qa",
       allowedPages: ["welcome", "qa", "wordcloud", "sweep"],
       revealEnabled: false,
@@ -120,6 +133,7 @@ function emptySnapshot(): CloudSnapshot {
       quizQuestionSeconds: 15,
       showScreenPanel: false,
       activeWordCloudSessionId: undefined,
+      wordCloudEnabled: false,
       wordCloudMaxEntriesPerParticipant: 3,
       roundIndex: 1,
       practiceStep: 1
@@ -138,6 +152,51 @@ function emptySnapshot(): CloudSnapshot {
     wordCloudEntries: [],
     ratings: [],
     parses: []
+  };
+}
+
+function normalizeSession(session: Partial<ExperimentSession>, fallbackEvent: EventState): ExperimentSession {
+  const id = session.id || DEFAULT_SESSION_ID;
+  const legacyRoundIds = Array.isArray(session.roundIds) ? session.roundIds : [];
+  return {
+    id,
+    title: session.title || `Session ${id}`,
+    roundId: session.roundId || id,
+    roundIds: legacyRoundIds.filter((roundId) => roundId && roundId !== (session.roundId || id)),
+    currentStage: session.currentStage || fallbackEvent.currentStage,
+    allowedPages: session.allowedPages?.length ? [...session.allowedPages] : [...fallbackEvent.allowedPages],
+    showScreenPanel: session.showScreenPanel ?? fallbackEvent.showScreenPanel,
+    activeWordCloudSessionId: session.activeWordCloudSessionId ?? fallbackEvent.activeWordCloudSessionId,
+    wordCloudEnabled: session.wordCloudEnabled ?? fallbackEvent.wordCloudEnabled ?? false,
+    wordCloudMaxEntriesPerParticipant: session.wordCloudMaxEntriesPerParticipant ?? fallbackEvent.wordCloudMaxEntriesPerParticipant,
+    sweepPlumDensity: session.sweepPlumDensity ?? fallbackEvent.sweepPlumDensity,
+    sweepPlumStdDev: session.sweepPlumStdDev ?? fallbackEvent.sweepPlumStdDev,
+    sweepLeafDensity: session.sweepLeafDensity ?? fallbackEvent.sweepLeafDensity,
+    sweepLeafStdDev: session.sweepLeafStdDev ?? fallbackEvent.sweepLeafStdDev,
+    quizQuestionSeconds: session.quizQuestionSeconds ?? fallbackEvent.quizQuestionSeconds,
+    practiceStep: session.practiceStep ?? fallbackEvent.practiceStep,
+    createdAt: session.createdAt || EVENT_EPOCH
+  };
+}
+
+function eventFromSession(event: EventState, session: ExperimentSession): EventState {
+  return {
+    ...event,
+    activeSessionId: session.id,
+    activeRoundId: session.roundId,
+    currentStage: session.currentStage,
+    allowedPages: [...session.allowedPages],
+    showScreenPanel: session.showScreenPanel,
+    activeWordCloudSessionId: session.activeWordCloudSessionId,
+    wordCloudEnabled: session.wordCloudEnabled,
+    wordCloudMaxEntriesPerParticipant: session.wordCloudMaxEntriesPerParticipant,
+    sweepPlumDensity: session.sweepPlumDensity,
+    sweepPlumStdDev: session.sweepPlumStdDev,
+    sweepLeafDensity: session.sweepLeafDensity,
+    sweepLeafStdDev: session.sweepLeafStdDev,
+    quizQuestionSeconds: session.quizQuestionSeconds,
+    practiceStep: session.practiceStep,
+    roundIndex: 1
   };
 }
 
@@ -184,14 +243,14 @@ export function findParticipantByRecovery(snapshot: CloudSnapshot, codeOrId: str
 
 function normalizeSnapshot(snapshot: CloudSnapshot): CloudSnapshot {
   const base = emptySnapshot();
+  const sessions = (snapshot.sessions?.length ? snapshot.sessions : base.sessions).map((session) => normalizeSession(session, snapshot.event || base.event));
+  const activeSession = sessions.find((session) => session.id === snapshot.event?.activeSessionId) || sessions[0];
+  const event = activeSession ? eventFromSession({ ...base.event, ...snapshot.event }, activeSession) : { ...base.event, ...snapshot.event };
   return {
     ...base,
     ...snapshot,
-    event: { ...base.event, ...snapshot.event },
-    sessions: (snapshot.sessions?.length ? snapshot.sessions : base.sessions).map((session) => ({
-      ...session,
-      roundIds: session.roundIds?.length === 2 ? session.roundIds : [`${session.id}:round-1`, `${session.id}:round-2`] as [string, string]
-    })),
+    event,
+    sessions,
     stagePresets: (snapshot.stagePresets?.length ? snapshot.stagePresets : base.stagePresets).map((preset) => ({
       ...preset,
       allowedPages: preset.allowedPages || []
@@ -216,10 +275,11 @@ function normalizeSnapshot(snapshot: CloudSnapshot): CloudSnapshot {
 }
 
 function mergeSnapshots(existing: CloudSnapshot, incoming: CloudSnapshot): CloudSnapshot {
+  const incomingEventIsNewer = timestamp(incoming.event.updatedAt) > timestamp(existing.event.updatedAt);
   return {
     event: latestEvent(existing.event, incoming.event),
-    sessions: mergeBy(existing.sessions, incoming.sessions, (x) => x.id, (_, next) => next),
-    stagePresets: mergeBy(existing.stagePresets, incoming.stagePresets, (x) => x.id, (_, next) => next),
+    sessions: mergeBy(existing.sessions, incoming.sessions, (x) => x.id, (prev, next) => incomingEventIsNewer ? next : prev),
+    stagePresets: incomingEventIsNewer ? incoming.stagePresets : existing.stagePresets,
     participants: mergeBy(existing.participants, incoming.participants, (x) => x.id, mergeParticipant),
     qa: mergeBy(existing.qa, incoming.qa, (x) => x.id, mergeQa),
     sweeps: mergeBy(existing.sweeps, incoming.sweeps, (x) => `${x.roundId}:${x.participantId}`, (_, next) => next),
@@ -228,7 +288,7 @@ function mergeSnapshots(existing: CloudSnapshot, incoming: CloudSnapshot): Cloud
     quizScores: mergeBy(existing.quizScores, incoming.quizScores, (x) => `${x.roundId}:${x.participantId}`, (_, next) => next),
     quizSession: latestQuizSession(existing.quizSession || null, incoming.quizSession || null),
     quizAnswers: mergeBy(existing.quizAnswers, incoming.quizAnswers, (x) => `${x.sessionId}:${x.participantId}:${x.questionId}`, (_, next) => next),
-    wordCloudSessions: mergeBy(existing.wordCloudSessions, incoming.wordCloudSessions, (x) => x.id, (_, next) => next),
+    wordCloudSessions: mergeBy(existing.wordCloudSessions, incoming.wordCloudSessions, (x) => x.id, (prev, next) => incomingEventIsNewer ? next : prev),
     wordCloudEntries: mergeBy(existing.wordCloudEntries, incoming.wordCloudEntries, (x) => x.id, (_, next) => next),
     ratings: mergeBy(existing.ratings, incoming.ratings, (x) => `${x.roundId}:${x.participantId}:${x.blindId}`, (_, next) => next),
     parses: mergeBy(existing.parses, incoming.parses, (x) => `${x.roundId}:${x.participantId}`, (_, next) => next)

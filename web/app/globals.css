@@ -84,6 +84,12 @@ button.selected, .primary {
   box-shadow: 0 8px 18px rgba(164, 58, 47, 0.24);
 }
 
+button.danger {
+  background: #fff2ec;
+  border-color: rgba(164, 58, 47, 0.45);
+  color: var(--seal);
+}
+
 input, textarea, select {
   width: 100%;
   border: 1px solid var(--line);
@@ -148,6 +154,17 @@ th { color: var(--ink); background: rgba(122, 100, 58, 0.08); }
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
+}
+
+.preset-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.preset-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
 }
 
 .participant-layout {

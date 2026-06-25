@@ -42,6 +42,7 @@ export type EventState = {
   quizQuestionSeconds: number;
   showScreenPanel: boolean;
   activeWordCloudSessionId?: string;
+  wordCloudEnabled: boolean;
   wordCloudMaxEntriesPerParticipant: number;
   roundIndex: 1 | 2;
   practiceStep: number;
@@ -50,7 +51,20 @@ export type EventState = {
 export type ExperimentSession = {
   id: string;
   title: string;
-  roundIds: [string, string];
+  roundId: string;
+  roundIds?: string[];
+  currentStage: StageKey;
+  allowedPages: StageKey[];
+  showScreenPanel: boolean;
+  activeWordCloudSessionId?: string;
+  wordCloudEnabled: boolean;
+  wordCloudMaxEntriesPerParticipant: number;
+  sweepPlumDensity: number;
+  sweepPlumStdDev: number;
+  sweepLeafDensity: number;
+  sweepLeafStdDev: number;
+  quizQuestionSeconds: number;
+  practiceStep: number;
   createdAt: string;
 };
 
@@ -195,6 +209,7 @@ export type QuizLiveAnswer = {
 export type WordCloudSession = {
   id: string;
   eventId: string;
+  experimentSessionId?: string;
   prompt: string;
   active: boolean;
   createdAt: string;
