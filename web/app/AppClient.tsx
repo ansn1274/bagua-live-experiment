@@ -579,6 +579,16 @@ function WordCloudAdminPanel({ snapshot, updateCloud }: {
 }
 
 type SweepItem = SweepVisualItem;
+type SweepElement = NonNullable<SweepVisualItem["element"]>;
+
+const TRIGRAM_ELEMENTS: SweepElement[] = ["metal", "metal", "fire", "wood", "wood", "water", "earth", "earth"];
+
+function sweepElementClass(item: SweepItem) {
+  if (item.type !== "trigram") return "";
+  const index = item.id.startsWith("t") ? Number(item.id.slice(1)) : Number.NaN;
+  const element = item.element || TRIGRAM_ELEMENTS[index];
+  return element ? `element-${element}` : "";
+}
 
 function hashSeed(input: string) {
   let h = 2166136261;
@@ -618,7 +628,7 @@ function makeSweepItems(plumDensity: number, plumStdDev: number, leafDensity: nu
   const items: SweepItem[] = [];
   for (let i = 0; i < plumCount; i += 1) items.push({ id: `p${i}`, type: "plum", x: rng() * 96 + 2, y: rng() * 90 + 5 });
   for (let i = 0; i < leafCount; i += 1) items.push({ id: `l${i}`, type: "leaf", x: rng() * 96 + 2, y: rng() * 90 + 5 });
-  Object.values(TRIGRAMS).forEach((t, i) => items.push({ id: `t${i}`, type: "trigram", x: rng() * 86 + 7, y: rng() * 78 + 10, label: `${t.symbol} ${t.name}` }));
+  Object.values(TRIGRAMS).forEach((t, i) => items.push({ id: `t${i}`, type: "trigram", x: rng() * 86 + 7, y: rng() * 78 + 10, label: `${t.symbol} ${t.name}`, element: TRIGRAM_ELEMENTS[i] }));
   return items;
 }
 
@@ -747,10 +757,10 @@ function SweepPanel({ snapshot, participant, updateCloud }: {
                   <button
                     key={item.id}
                     type="button"
-                    className={`sweep-item ${item.type} ${swept ? "found" : ""} ${isRevealed ? "revealed" : ""}`}
+                    className={`sweep-item ${item.type} ${sweepElementClass(item)} ${swept ? "found" : ""} ${isRevealed ? "revealed" : ""}`}
                     style={{ left: `${item.x}%`, top: `${item.y}%` }}
                   >
-                    {item.type === "plum" ? "✿" : item.type === "leaf" ? "🍃" : item.label}
+                    {item.type === "trigram" ? item.label : null}
                   </button>
                 )
               );

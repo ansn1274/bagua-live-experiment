@@ -77,6 +77,7 @@ export type SweepVisualItem = {
   x: number;
   y: number;
   label?: string;
+  element?: "metal" | "wood" | "water" | "fire" | "earth";
 };
 
 export type PublicParticipantData = {
