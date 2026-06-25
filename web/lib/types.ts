@@ -75,6 +75,7 @@ export type StagePreset = {
   allowedPages: StageKey[];
   showScreenPanel: boolean;
   wordCloudEnabled: boolean;
+  wordCloudPrompt?: string;
   wordCloudMaxEntriesPerParticipant: number;
   sweepPlumDensity: number;
   sweepPlumStdDev: number;
@@ -223,6 +224,12 @@ export type WordCloudEntry = {
   createdAt: string;
 };
 
+export type SessionVisit = {
+  sessionId: string;
+  participantId: string;
+  seenAt: string;
+};
+
 export type ParsedStatement = {
   id: string;
   aspect?: string;
@@ -278,6 +285,7 @@ export type CloudSnapshot = {
   quizAnswers: QuizLiveAnswer[];
   wordCloudSessions: WordCloudSession[];
   wordCloudEntries: WordCloudEntry[];
+  sessionVisits: SessionVisit[];
   ratings: RatingSummary[];
   parses: ParseSummary[];
 };

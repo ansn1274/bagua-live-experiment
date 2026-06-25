@@ -167,6 +167,23 @@ th { color: var(--ink); background: rgba(122, 100, 58, 0.08); }
   gap: 0.5rem;
 }
 
+.practice-admin-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.5rem;
+}
+
+.practice-admin-list button {
+  display: grid;
+  gap: 0.18rem;
+  text-align: left;
+}
+
+.practice-admin-list span {
+  font-size: 0.72rem;
+  opacity: 0.74;
+}
+
 .participant-layout {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);

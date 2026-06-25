@@ -14,7 +14,7 @@ function defaultSessions(): ExperimentSession[] {
     roundId: DEFAULT_SESSION_ID,
     roundIds: [],
     currentStage: "qa",
-    allowedPages: ["welcome", "qa", "wordcloud", "sweep"],
+    allowedPages: ["welcome", "qa"],
     showScreenPanel: false,
     activeWordCloudSessionId: undefined,
     wordCloudEnabled: false,
@@ -32,12 +32,29 @@ function defaultSessions(): ExperimentSession[] {
 function defaultStagePresets(): StagePreset[] {
   return [
     {
-      id: "preset-opening",
-      name: "Step 1 QA / 文字雲 / 掃地",
-      currentStage: "qa",
-      allowedPages: ["welcome", "qa", "wordcloud", "sweep"],
+      id: "preset-sweep",
+      name: "Step 1 掃地",
+      currentStage: "sweep",
+      allowedPages: ["welcome", "qa", "sweep"],
+      showScreenPanel: false,
+      wordCloudEnabled: false,
+      wordCloudMaxEntriesPerParticipant: 3,
+      sweepPlumDensity: 260,
+      sweepPlumStdDev: 35,
+      sweepLeafDensity: 330,
+      sweepLeafStdDev: 45,
+      quizQuestionSeconds: 15,
+      practiceStep: 1,
+      createdAt: EVENT_EPOCH
+    },
+    {
+      id: "preset-wordcloud",
+      name: "Step 2 文字雲",
+      currentStage: "wordcloud",
+      allowedPages: ["welcome", "qa", "wordcloud"],
       showScreenPanel: false,
       wordCloudEnabled: true,
+      wordCloudPrompt: "說到「易經」你會想到什麼？",
       wordCloudMaxEntriesPerParticipant: 3,
       sweepPlumDensity: 260,
       sweepPlumStdDev: 35,
@@ -49,7 +66,7 @@ function defaultStagePresets(): StagePreset[] {
     },
     {
       id: "preset-casting",
-      name: "Step 2 起卦",
+      name: "Step 3 起卦",
       currentStage: "question",
       allowedPages: ["welcome", "qa", "question"],
       showScreenPanel: false,
@@ -65,9 +82,9 @@ function defaultStagePresets(): StagePreset[] {
     },
     {
       id: "preset-quiz",
-      name: "Step 3 限時測驗",
+      name: "Step 4 限時測驗",
       currentStage: "quiz",
-      allowedPages: ["welcome", "quiz"],
+      allowedPages: ["welcome", "qa", "quiz"],
       showScreenPanel: true,
       wordCloudEnabled: false,
       wordCloudMaxEntriesPerParticipant: 3,
@@ -80,10 +97,10 @@ function defaultStagePresets(): StagePreset[] {
       createdAt: EVENT_EPOCH
     },
     {
-      id: "preset-prompt",
-      name: "Step 4 GPT / 練習",
+      id: "preset-prompt-rating",
+      name: "Step 5 My GPT + 三盲評分",
       currentStage: "prompt",
-      allowedPages: ["welcome", "prompt", "practice", "progress"],
+      allowedPages: ["welcome", "qa", "prompt", "rating"],
       showScreenPanel: false,
       wordCloudEnabled: false,
       wordCloudMaxEntriesPerParticipant: 3,
@@ -96,10 +113,26 @@ function defaultStagePresets(): StagePreset[] {
       createdAt: EVENT_EPOCH
     },
     {
-      id: "preset-rating",
-      name: "Step 5 評分 / 揭曉",
-      currentStage: "rating",
-      allowedPages: ["welcome", "rating", "reveal", "progress"],
+      id: "preset-practice",
+      name: "Step 6 逐步起卦練習",
+      currentStage: "practice",
+      allowedPages: ["welcome", "qa", "practice"],
+      showScreenPanel: false,
+      wordCloudEnabled: false,
+      wordCloudMaxEntriesPerParticipant: 3,
+      sweepPlumDensity: 260,
+      sweepPlumStdDev: 35,
+      sweepLeafDensity: 330,
+      sweepLeafStdDev: 45,
+      quizQuestionSeconds: 15,
+      practiceStep: 1,
+      createdAt: EVENT_EPOCH
+    },
+    {
+      id: "preset-reveal",
+      name: "Step 7 揭曉",
+      currentStage: "reveal",
+      allowedPages: ["welcome", "qa", "reveal"],
       showScreenPanel: true,
       wordCloudEnabled: false,
       wordCloudMaxEntriesPerParticipant: 3,
@@ -114,6 +147,17 @@ function defaultStagePresets(): StagePreset[] {
   ];
 }
 
+const DEFAULT_STAGE_PRESET_IDS = new Set(defaultStagePresets().map((preset) => preset.id));
+const LEGACY_STAGE_PRESET_IDS = new Set(["preset-opening", "preset-casting", "preset-quiz", "preset-prompt", "preset-rating"]);
+
+function normalizeStagePresets(presets: StagePreset[] | undefined, basePresets = defaultStagePresets()) {
+  const rows = presets?.length ? presets : basePresets;
+  const hasLegacyPresets = rows.some((preset) => preset.id === "preset-opening" || preset.allowedPages?.includes("progress") || (preset.id === "preset-quiz" && preset.name.includes("Step 3")));
+  if (!hasLegacyPresets) return rows.map((preset) => ({ ...preset, allowedPages: preset.allowedPages || [] }));
+  const custom = rows.filter((preset) => !LEGACY_STAGE_PRESET_IDS.has(preset.id) && !DEFAULT_STAGE_PRESET_IDS.has(preset.id));
+  return [...basePresets, ...custom].map((preset) => ({ ...preset, allowedPages: preset.allowedPages || [] }));
+}
+
 function emptySnapshot(): CloudSnapshot {
   return {
     event: {
@@ -123,7 +167,7 @@ function emptySnapshot(): CloudSnapshot {
       activeSessionId: DEFAULT_SESSION_ID,
       activeRoundId: DEFAULT_SESSION_ID,
       currentStage: "qa",
-      allowedPages: ["welcome", "qa", "wordcloud", "sweep"],
+      allowedPages: ["welcome", "qa"],
       revealEnabled: false,
       sweepOpen: false,
       sweepPlumDensity: 260,
@@ -150,6 +194,7 @@ function emptySnapshot(): CloudSnapshot {
     quizAnswers: [],
     wordCloudSessions: [],
     wordCloudEntries: [],
+    sessionVisits: [],
     ratings: [],
     parses: []
   };
@@ -251,10 +296,7 @@ function normalizeSnapshot(snapshot: CloudSnapshot): CloudSnapshot {
     ...snapshot,
     event,
     sessions,
-    stagePresets: (snapshot.stagePresets?.length ? snapshot.stagePresets : base.stagePresets).map((preset) => ({
-      ...preset,
-      allowedPages: preset.allowedPages || []
-    })),
+    stagePresets: normalizeStagePresets(snapshot.stagePresets, base.stagePresets),
     participants: snapshot.participants || [],
     qa: (snapshot.qa || []).map((q) => ({
       ...q,
@@ -269,6 +311,7 @@ function normalizeSnapshot(snapshot: CloudSnapshot): CloudSnapshot {
     quizAnswers: snapshot.quizAnswers || [],
     wordCloudSessions: snapshot.wordCloudSessions || [],
     wordCloudEntries: snapshot.wordCloudEntries || [],
+    sessionVisits: snapshot.sessionVisits || [],
     ratings: snapshot.ratings || [],
     parses: snapshot.parses || []
   };
@@ -290,6 +333,7 @@ function mergeSnapshots(existing: CloudSnapshot, incoming: CloudSnapshot): Cloud
     quizAnswers: mergeBy(existing.quizAnswers, incoming.quizAnswers, (x) => `${x.sessionId}:${x.participantId}:${x.questionId}`, (_, next) => next),
     wordCloudSessions: mergeBy(existing.wordCloudSessions, incoming.wordCloudSessions, (x) => x.id, (prev, next) => incomingEventIsNewer ? next : prev),
     wordCloudEntries: mergeBy(existing.wordCloudEntries, incoming.wordCloudEntries, (x) => x.id, (_, next) => next),
+    sessionVisits: mergeBy(existing.sessionVisits, incoming.sessionVisits, (x) => `${x.sessionId}:${x.participantId}`, (_, next) => next),
     ratings: mergeBy(existing.ratings, incoming.ratings, (x) => `${x.roundId}:${x.participantId}:${x.blindId}`, (_, next) => next),
     parses: mergeBy(existing.parses, incoming.parses, (x) => `${x.roundId}:${x.participantId}`, (_, next) => next)
   };

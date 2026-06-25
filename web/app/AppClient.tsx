@@ -37,6 +37,7 @@ import {
   loadCloud,
   loadParticipant,
   loadPrivate,
+  markSessionVisit,
   publicData,
   recoverParticipant,
   recoverRemoteParticipant,
@@ -864,6 +865,13 @@ function QuizPanel({ snapshot, participant, updateCloud }: {
   const displayName = join?.displayName || name || "匿名";
   const [nowMs, setNowMs] = useState(Date.now());
   useEffect(() => {
+    if (!participant || !session || session.started || session.finished || join) return;
+    updateCloud((draft) => joinQuiz(draft, participant.id, participant.nickname || "匿名"));
+  }, [participant?.id, participant?.nickname, session?.id, session?.started, session?.finished, !!join, updateCloud]);
+  useEffect(() => {
+    if (!name && (join?.displayName || participant?.nickname)) setName(join?.displayName || participant?.nickname || "");
+  }, [join?.displayName, participant?.nickname, name]);
+  useEffect(() => {
     if (!session?.started || session.finished) return;
     const timer = window.setInterval(() => setNowMs(Date.now()), 250);
     return () => window.clearInterval(timer);
@@ -913,17 +921,14 @@ function QuizPanel({ snapshot, participant, updateCloud }: {
       {session && !session.started && (
         <div className="quiz-lobby">
           <p className="status-line">等待講者開始，目前 {snapshot.quizAnswers.filter((a) => a.sessionId === session.id && a.questionIndex === -1).length} 人加入。</p>
-          {join ? (
-            <div className="done-box"><Check /><div><strong>{join.displayName} 已加入</strong><p>請等講者按開始。</p></div></div>
-          ) : (
-            <div className="inline-form">
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="排行榜姓名 / 暱稱" />
-              <button disabled={!participant || !name.trim()} onClick={() => {
-                if (!participant) return;
-                updateCloud((draft) => joinQuiz(draft, participant.id, name));
-              }}>加入測驗</button>
-            </div>
-          )}
+          <div className="inline-form">
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="排行榜姓名 / 暱稱" />
+            <button disabled={!participant || !name.trim()} onClick={() => {
+              if (!participant) return;
+              updateCloud((draft) => joinQuiz(draft, participant.id, name));
+            }}>{join ? "更新名稱" : "加入測驗"}</button>
+          </div>
+          {join && <div className="done-box"><Check /><div><strong>{join.displayName} 已加入</strong><p>你可以在開始前修改排行榜名稱。</p></div></div>}
         </div>
       )}
       {session?.started && currentQuestion && (
@@ -1302,6 +1307,16 @@ function AdminPanel({ snapshot, updateCloud }: {
     ? liveRows.slice(0, 20).map((r) => ({ participantId: r.id, roundId: liveSession?.roundId || getRoundId(snapshot), displayName: r.name, score: r.score, correctCount: r.correct, totalCount: liveSession?.questions.length || 0, elapsedMs: r.elapsed }))
     : [...snapshot.quizScores].sort((a, b) => b.score - a.score || a.elapsedMs - b.elapsedMs).slice(0, 20);
   const sweeps = snapshot.sweeps.filter((sweep) => activeSessionRoundIds.includes(sweep.roundId));
+  const sessionVisitCount = new Set(snapshot.sessionVisits.filter((visit) => visit.sessionId === snapshot.event.activeSessionId).map((visit) => visit.participantId)).size;
+  const sweepDoneCount = new Set(sweeps.map((sweep) => sweep.participantId)).size;
+  const castingDoneCount = new Set(snapshot.randomSources.filter((row) => activeSessionRoundIds.includes(row.roundId) && row.sourceType === "focused_true").map((row) => row.participantId)).size;
+  const distractedDoneCount = new Set(snapshot.randomSources.filter((row) => activeSessionRoundIds.includes(row.roundId) && row.sourceType === "distracted_random").map((row) => row.participantId)).size;
+  const quizJoinedCount = liveSession ? new Set(snapshot.quizAnswers.filter((a) => a.sessionId === liveSession.id && a.questionIndex === -1).map((a) => a.participantId)).size : 0;
+  const quizFinishedCount = new Set(snapshot.quizScores.filter((score) => activeSessionRoundIds.includes(score.roundId)).map((score) => score.participantId)).size;
+  const ratingCounts = snapshot.ratings
+    .filter((rating) => activeSessionRoundIds.includes(rating.roundId))
+    .reduce((map, rating) => map.set(rating.participantId, (map.get(rating.participantId) || 0) + 1), new Map<string, number>());
+  const ratingDoneCount = [...ratingCounts.values()].filter((count) => count >= 3).length;
   const runStats = () => {
     const ids = selectedSessionIds.length ? selectedSessionIds : [snapshot.event.activeSessionId];
     const roundIds = sessionRoundIds(snapshot, ids);
@@ -1346,6 +1361,15 @@ function AdminPanel({ snapshot, updateCloud }: {
               </button>
             ))}
           </div>
+          <div className="metric-row">
+            <Metric label="進入本 session" value={`${sessionVisitCount}`} />
+            <Metric label="完成掃地" value={`${sweepDoneCount}`} />
+            <Metric label="完成起卦" value={`${castingDoneCount}`} />
+            <Metric label="加入測驗" value={`${quizJoinedCount}`} />
+            <Metric label="完成測驗" value={`${quizFinishedCount}`} />
+            <Metric label="完成分心亂數" value={`${distractedDoneCount}`} />
+            <Metric label="完成評分" value={`${ratingDoneCount}`} />
+          </div>
         </div>
         <div className="panel-card inner">
           <h3>Stage Presets</h3>
@@ -1375,9 +1399,22 @@ function AdminPanel({ snapshot, updateCloud }: {
         <div className="stage-grid compact">
           {STAGES.map((s) => <button key={s.key} className={snapshot.event.allowedPages.includes(s.key) ? "selected" : ""} onClick={() => updateCloud((draft) => toggleAllowed(draft, s.key))}>{s.label}</button>)}
         </div>
+        <div className="panel-card inner">
+          <h3>逐步起卦練習控制</h3>
+          <p className="status-line">目前 Step {snapshot.event.practiceStep}：{PRACTICE_STEPS[snapshot.event.practiceStep - 1]}</p>
+          <div className="practice-admin-list">
+            {PRACTICE_STEPS.map((label, index) => {
+              const stepNumber = index + 1;
+              return (
+                <button key={label} className={snapshot.event.practiceStep === stepNumber ? "selected" : ""} onClick={() => updateCloud((draft) => { draft.event.practiceStep = stepNumber; touchEvent(draft); })}>
+                  <span>Step {stepNumber}</span>
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <div className="actions wrap">
-          <button onClick={() => updateCloud((draft) => { draft.event.practiceStep = Math.max(1, draft.event.practiceStep - 1); touchEvent(draft); })}>教學上一步</button>
-          <button onClick={() => updateCloud((draft) => { draft.event.practiceStep = Math.min(14, draft.event.practiceStep + 1); touchEvent(draft); })}>教學下一步</button>
           <button className={snapshot.event.showScreenPanel ? "selected" : ""} onClick={() => updateCloud((draft) => { draft.event.showScreenPanel = !draft.event.showScreenPanel; touchEvent(draft); })}>
             {snapshot.event.showScreenPanel ? "關閉學生端全場資訊" : "開啟學生端全場資訊"}
           </button>
@@ -1562,6 +1599,13 @@ function ParticipantShell() {
     }
     if (!currentPageAllowed(snapshot, page)) setPage(fallbackPage);
   }, [snapshot, snapshot.event.currentStage, allowedKey, page]);
+
+  useEffect(() => {
+    if (!participant?.id || !snapshot.event.activeSessionId) return;
+    const alreadySeen = snapshot.sessionVisits.some((visit) => visit.participantId === participant.id && visit.sessionId === snapshot.event.activeSessionId);
+    if (alreadySeen) return;
+    updateCloud((draft) => markSessionVisit(draft, participant.id, draft.event.activeSessionId));
+  }, [participant?.id, snapshot.event.activeSessionId, snapshot.sessionVisits, updateCloud]);
 
   const allowed = currentPageAllowed(snapshot, page);
   const visibleStages = STAGES.filter((s) => currentPageAllowed(snapshot, s.key));
