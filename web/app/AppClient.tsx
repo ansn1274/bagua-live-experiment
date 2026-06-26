@@ -1613,9 +1613,14 @@ function ProgressPanel({ snapshot, participant, privateData }: { snapshot: Cloud
 
 function ParticipantShell() {
   const { snapshot, participant, privateData, setParticipant, updateCloud, updatePrivate } = useExperimentState();
+  const [clientReady, setClientReady] = useState(false);
   const [page, setPage] = useState<StageKey>(snapshot.event.currentStage || "welcome");
   const lastAdminStageRef = useRef<StageKey | null>(null);
   const allowedKey = snapshot.event.allowedPages.join("|");
+
+  useEffect(() => {
+    setClientReady(true);
+  }, []);
 
   useEffect(() => {
     const fallbackPage = currentPageAllowed(snapshot, snapshot.event.currentStage)
@@ -1641,6 +1646,8 @@ function ParticipantShell() {
     updateCloud((draft) => markSessionVisit(draft, participant.id, draft.event.activeSessionId));
   }, [participant?.id, snapshot.event.activeSessionId, snapshot.sessionVisits, updateCloud]);
 
+  const activeRoundId = getRoundId(snapshot);
+  const introSweepRequired = !!participant && !publicData(snapshot, participant.id, activeRoundId).sweepCompleted;
   const allowed = currentPageAllowed(snapshot, page);
   const visibleStages = STAGES.filter((s) => currentPageAllowed(snapshot, s.key));
   const saveNickname = (value: string) => {
@@ -1677,6 +1684,45 @@ function ParticipantShell() {
     if (page === "reveal") return <RevealPanel snapshot={snapshot} participant={participant} privateData={privateData} />;
     return <ProgressPanel snapshot={snapshot} participant={participant} privateData={privateData} />;
   };
+
+  if (!clientReady || !participant) {
+    return (
+      <main className="sweep-intro-shell">
+        <header className="sweep-intro-header">
+          <div>
+            <p className="eyebrow">Opening Sweep</p>
+            <h1>入場掃地遊戲</h1>
+            <p>正在建立匿名 ID，等一下就可以開始掃梅花與樹葉。</p>
+          </div>
+        </header>
+        <section className="panel-card intro-loading">
+          <h2>準備中</h2>
+          <p className="muted">正在同步場次與匿名代碼。</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (introSweepRequired) {
+    return (
+      <main className="sweep-intro-shell">
+        <header className="sweep-intro-header">
+          <div>
+            <p className="eyebrow">Opening Sweep</p>
+            <h1>入場掃地遊戲</h1>
+            <p>先掃開梅花與樹葉，找出八個基本卦；完成後會進入完整互動頁面。</p>
+          </div>
+          <div className="participant-id">
+            {participant?.id || "建立中"}
+            <span>{snapshot.sessions.find((session) => session.id === snapshot.event.activeSessionId)?.title || "Session"}</span>
+          </div>
+        </header>
+        <div className="sweep-intro-board">
+          <SweepPanel snapshot={snapshot} participant={participant} updateCloud={updateCloud} />
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="app-shell">
