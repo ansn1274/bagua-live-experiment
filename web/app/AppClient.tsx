@@ -806,8 +806,7 @@ function SweepPanel({ snapshot, participant, updateCloud }: {
             })}
             <div className="brush-hint">{complete ? "掃地已完成，畫面保留供回看" : "按住掃開花葉；八卦露出就會自動收集"}</div>
           </div>
-          {!complete && <button className="ghost" onClick={finishSweep}>結束掃地</button>}
-          <p className="muted">找齊八個基本卦後會自動完成；梅花與葉子數會作為掃地隨機數。</p>
+          <p className="muted">找齊八個基本卦後會自動完成。</p>
         </>
     </section>
   );
@@ -1688,13 +1687,6 @@ function ParticipantShell() {
   if (!clientReady || !participant) {
     return (
       <main className="sweep-intro-shell">
-        <header className="sweep-intro-header">
-          <div>
-            <p className="eyebrow">Opening Sweep</p>
-            <h1>入場掃地遊戲</h1>
-            <p>正在建立匿名 ID，等一下就可以開始掃梅花與樹葉。</p>
-          </div>
-        </header>
         <section className="panel-card intro-loading">
           <h2>準備中</h2>
           <p className="muted">正在同步場次與匿名代碼。</p>
@@ -1706,17 +1698,6 @@ function ParticipantShell() {
   if (introSweepRequired) {
     return (
       <main className="sweep-intro-shell">
-        <header className="sweep-intro-header">
-          <div>
-            <p className="eyebrow">Opening Sweep</p>
-            <h1>入場掃地遊戲</h1>
-            <p>先掃開梅花與樹葉，找出八個基本卦；完成後會進入完整互動頁面。</p>
-          </div>
-          <div className="participant-id">
-            {participant?.id || "建立中"}
-            <span>{snapshot.sessions.find((session) => session.id === snapshot.event.activeSessionId)?.title || "Session"}</span>
-          </div>
-        </header>
         <div className="sweep-intro-board">
           <SweepPanel snapshot={snapshot} participant={participant} updateCloud={updateCloud} />
         </div>

@@ -122,27 +122,10 @@ th { color: var(--ink); background: rgba(122, 100, 58, 0.08); }
 .sweep-intro-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 1rem;
+  grid-template-rows: minmax(0, 1fr);
   padding: clamp(0.75rem, 2vw, 1.25rem);
 }
 
-.sweep-intro-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(12rem, 18rem);
-  align-items: center;
-  gap: 1rem;
-  padding: 0.95rem 1rem;
-  border: 1px solid rgba(211, 173, 86, 0.45);
-  border-radius: var(--radius);
-  background:
-    linear-gradient(90deg, rgba(164, 58, 47, 0.2), transparent 22rem),
-    linear-gradient(135deg, #1a1712, #302819);
-  box-shadow: 0 14px 30px rgba(30, 22, 12, 0.18);
-}
-
-.sweep-intro-header h1 { margin-bottom: 0.25rem; }
-.sweep-intro-header p:not(.eyebrow) { color: #f7ead0; line-height: 1.55; }
 .sweep-intro-board {
   min-height: 0;
   display: grid;
@@ -150,11 +133,11 @@ th { color: var(--ink); background: rgba(122, 100, 58, 0.08); }
 .sweep-intro-board .panel-card {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
 }
 .sweep-intro-board .sweep-board {
   min-height: 420px;
-  height: min(74vh, 760px);
+  height: min(82vh, 840px);
 }
 .intro-loading {
   align-self: start;
@@ -816,9 +799,6 @@ th { color: var(--ink); background: rgba(122, 100, 58, 0.08); }
     align-items: stretch;
     flex-direction: column;
   }
-  .sweep-intro-header {
-    grid-template-columns: 1fr;
-  }
   .app-header::after {
     position: absolute;
     top: 0.8rem;
@@ -829,10 +809,9 @@ th { color: var(--ink); background: rgba(122, 100, 58, 0.08); }
 @media (max-width: 560px) {
   .app-shell { padding: 0.6rem; }
   .app-header { margin: -0.6rem -0.6rem 0.75rem; padding-right: 4rem; }
-  .sweep-intro-shell { padding: 0.6rem; gap: 0.65rem; }
-  .sweep-intro-header { padding: 0.8rem; }
+  .sweep-intro-shell { padding: 0.6rem; }
   .sweep-intro-board .panel-card { padding: 0.75rem; }
-  .sweep-intro-board .sweep-board { height: 64vh; min-height: 430px; }
+  .sweep-intro-board .sweep-board { height: 78vh; min-height: 470px; }
   .mobile-nav { grid-template-columns: 1fr; }
   .two-col, .inline-form, .reveal-grid, .hex-mini, .live-options { grid-template-columns: 1fr; }
   .sweep-board { height: 68vh; min-height: 460px; }
