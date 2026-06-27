@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSnapshotClient, readSnapshot, readSnapshotVersion, sanitizeSnapshot, writeSnapshot } from "../../../lib/serverSnapshot";
+import { getSnapshotClient, readSnapshotForVersion, readSnapshotVersion, sanitizeSnapshot, writeSnapshot } from "../../../lib/serverSnapshot";
 import type { CloudSnapshot } from "../../../lib/types";
 
 export const runtime = "nodejs";
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     if (knownVersion && knownVersion === version) {
       return NextResponse.json({ ok: true, unchanged: true, version });
     }
-    const snapshot = await readSnapshot(client);
+    const snapshot = await readSnapshotForVersion(client, version);
     return NextResponse.json({ ok: true, snapshot: sanitizeSnapshot(snapshot, participantId), version });
   } catch (error) {
     return NextResponse.json({ ok: false, reason: "snapshot_read_failed", detail: String(error) }, { status: 500 });

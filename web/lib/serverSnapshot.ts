@@ -6,6 +6,10 @@ const EVENT_EPOCH = "2026-01-01T00:00:00.000Z";
 const VALID_SOURCES = new Set(["sweep_random", "focused_true", "distracted_random"]);
 const VALID_BLINDS = new Set(["A", "B", "C"]);
 const DEFAULT_SESSION_ID = "session-default";
+let cachedVersion: { value: string; expiresAt: number } | null = null;
+let versionReadInFlight: Promise<string> | null = null;
+let cachedSnapshot: { version: string; value: CloudSnapshot } | null = null;
+let snapshotReadInFlight: Promise<CloudSnapshot> | null = null;
 
 function defaultSessions(): ExperimentSession[] {
   return [{
@@ -291,6 +295,19 @@ export async function readSnapshot(client: SupabaseClient, timeoutMs = 10000): P
 }
 
 export async function readSnapshotVersion(client: SupabaseClient, timeoutMs = 6000) {
+  if (cachedVersion && cachedVersion.expiresAt > Date.now()) return cachedVersion.value;
+  if (versionReadInFlight) return versionReadInFlight;
+  versionReadInFlight = querySnapshotVersion(client, timeoutMs);
+  try {
+    const version = await versionReadInFlight;
+    cachedVersion = { value: version, expiresAt: Date.now() + 750 };
+    return version;
+  } finally {
+    versionReadInFlight = null;
+  }
+}
+
+async function querySnapshotVersion(client: SupabaseClient, timeoutMs: number) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -307,17 +324,36 @@ export async function readSnapshotVersion(client: SupabaseClient, timeoutMs = 60
   }
 }
 
+export async function readSnapshotForVersion(client: SupabaseClient, version: string) {
+  if (cachedSnapshot?.version === version) return cachedSnapshot.value;
+  if (snapshotReadInFlight) {
+    const snapshot = await snapshotReadInFlight;
+    if (cachedSnapshot?.version === version) return snapshot;
+  }
+  snapshotReadInFlight = readSnapshot(client);
+  try {
+    const snapshot = await snapshotReadInFlight;
+    cachedSnapshot = { version, value: snapshot };
+    return snapshot;
+  } finally {
+    snapshotReadInFlight = null;
+  }
+}
+
 export async function writeSnapshot(client: SupabaseClient, incoming: CloudSnapshot, mode: "participant" | "admin" = "participant") {
   const existing = await readSnapshot(client);
   const merged = compactSnapshot(mergeSnapshots(existing, normalizeSnapshot(incoming), mode));
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
+  const updatedAt = new Date().toISOString();
   try {
     const { error } = await client
       .from("app_state")
-      .upsert({ key: STATE_KEY, snapshot: merged, updated_at: new Date().toISOString() }, { onConflict: "key" })
+      .upsert({ key: STATE_KEY, snapshot: merged, updated_at: updatedAt }, { onConflict: "key" })
       .abortSignal(controller.signal);
     if (error) throw error;
+    cachedVersion = { value: updatedAt, expiresAt: Date.now() + 750 };
+    cachedSnapshot = { version: updatedAt, value: merged };
     return merged;
   } finally {
     clearTimeout(timeout);
