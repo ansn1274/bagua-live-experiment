@@ -13,14 +13,14 @@ function defaultSessions(): ExperimentSession[] {
     title: "預設場次",
     roundId: DEFAULT_SESSION_ID,
     roundIds: [],
-    currentStage: "qa",
+    currentStage: "welcome",
     allowedPages: ["welcome", "qa"],
     showScreenPanel: false,
     activeWordCloudSessionId: undefined,
     wordCloudEnabled: false,
     wordCloudMaxEntriesPerParticipant: 3,
-    sweepPlumDensity: 260,
-    sweepPlumStdDev: 35,
+    sweepPlumDensity: 800,
+    sweepPlumStdDev: 100,
     sweepLeafDensity: 330,
     sweepLeafStdDev: 45,
     quizQuestionSeconds: 15,
@@ -34,13 +34,13 @@ function defaultStagePresets(): StagePreset[] {
     {
       id: "preset-sweep",
       name: "Step 1 掃地",
-      currentStage: "sweep",
+      currentStage: "welcome",
       allowedPages: ["welcome", "qa", "sweep"],
       showScreenPanel: false,
       wordCloudEnabled: false,
       wordCloudMaxEntriesPerParticipant: 3,
-      sweepPlumDensity: 260,
-      sweepPlumStdDev: 35,
+      sweepPlumDensity: 800,
+      sweepPlumStdDev: 100,
       sweepLeafDensity: 330,
       sweepLeafStdDev: 45,
       quizQuestionSeconds: 15,
@@ -56,8 +56,8 @@ function defaultStagePresets(): StagePreset[] {
       wordCloudEnabled: true,
       wordCloudPrompt: "說到「易經」你會想到什麼？",
       wordCloudMaxEntriesPerParticipant: 3,
-      sweepPlumDensity: 260,
-      sweepPlumStdDev: 35,
+      sweepPlumDensity: 800,
+      sweepPlumStdDev: 100,
       sweepLeafDensity: 330,
       sweepLeafStdDev: 45,
       quizQuestionSeconds: 15,
@@ -72,8 +72,8 @@ function defaultStagePresets(): StagePreset[] {
       showScreenPanel: false,
       wordCloudEnabled: false,
       wordCloudMaxEntriesPerParticipant: 3,
-      sweepPlumDensity: 260,
-      sweepPlumStdDev: 35,
+      sweepPlumDensity: 800,
+      sweepPlumStdDev: 100,
       sweepLeafDensity: 330,
       sweepLeafStdDev: 45,
       quizQuestionSeconds: 15,
@@ -88,8 +88,8 @@ function defaultStagePresets(): StagePreset[] {
       showScreenPanel: true,
       wordCloudEnabled: false,
       wordCloudMaxEntriesPerParticipant: 3,
-      sweepPlumDensity: 260,
-      sweepPlumStdDev: 35,
+      sweepPlumDensity: 800,
+      sweepPlumStdDev: 100,
       sweepLeafDensity: 330,
       sweepLeafStdDev: 45,
       quizQuestionSeconds: 15,
@@ -104,8 +104,8 @@ function defaultStagePresets(): StagePreset[] {
       showScreenPanel: false,
       wordCloudEnabled: false,
       wordCloudMaxEntriesPerParticipant: 3,
-      sweepPlumDensity: 260,
-      sweepPlumStdDev: 35,
+      sweepPlumDensity: 800,
+      sweepPlumStdDev: 100,
       sweepLeafDensity: 330,
       sweepLeafStdDev: 45,
       quizQuestionSeconds: 15,
@@ -120,8 +120,8 @@ function defaultStagePresets(): StagePreset[] {
       showScreenPanel: false,
       wordCloudEnabled: false,
       wordCloudMaxEntriesPerParticipant: 3,
-      sweepPlumDensity: 260,
-      sweepPlumStdDev: 35,
+      sweepPlumDensity: 800,
+      sweepPlumStdDev: 100,
       sweepLeafDensity: 330,
       sweepLeafStdDev: 45,
       quizQuestionSeconds: 15,
@@ -136,8 +136,8 @@ function defaultStagePresets(): StagePreset[] {
       showScreenPanel: true,
       wordCloudEnabled: false,
       wordCloudMaxEntriesPerParticipant: 3,
-      sweepPlumDensity: 260,
-      sweepPlumStdDev: 35,
+      sweepPlumDensity: 800,
+      sweepPlumStdDev: 100,
       sweepLeafDensity: 330,
       sweepLeafStdDev: 45,
       quizQuestionSeconds: 15,
@@ -153,9 +153,24 @@ const LEGACY_STAGE_PRESET_IDS = new Set(["preset-opening", "preset-casting", "pr
 function normalizeStagePresets(presets: StagePreset[] | undefined, basePresets = defaultStagePresets()) {
   const rows = presets?.length ? presets : basePresets;
   const hasLegacyPresets = rows.some((preset) => preset.id === "preset-opening" || preset.allowedPages?.includes("progress") || (preset.id === "preset-quiz" && preset.name.includes("Step 3")));
-  if (!hasLegacyPresets) return rows.map((preset) => ({ ...preset, allowedPages: preset.allowedPages || [] }));
+  if (!hasLegacyPresets) return rows.map((preset) => migrateBuiltInPreset({ ...preset, allowedPages: preset.allowedPages || [] }));
   const custom = rows.filter((preset) => !LEGACY_STAGE_PRESET_IDS.has(preset.id) && !DEFAULT_STAGE_PRESET_IDS.has(preset.id));
-  return [...basePresets, ...custom].map((preset) => ({ ...preset, allowedPages: preset.allowedPages || [] }));
+  return [...basePresets, ...custom].map((preset) => migrateBuiltInPreset({ ...preset, allowedPages: preset.allowedPages || [] }));
+}
+
+function migrateBuiltInPreset(preset: StagePreset): StagePreset {
+  if (!DEFAULT_STAGE_PRESET_IDS.has(preset.id)) return preset;
+  const migrated = {
+    ...preset,
+    sweepPlumDensity: preset.sweepPlumDensity === 260 ? 800 : preset.sweepPlumDensity,
+    sweepPlumStdDev: preset.sweepPlumStdDev === 35 ? 100 : preset.sweepPlumStdDev
+  };
+  if (preset.id !== "preset-sweep") return migrated;
+  return {
+    ...migrated,
+    currentStage: "welcome",
+    allowedPages: Array.from(new Set(["welcome", "qa", "sweep", ...preset.allowedPages]))
+  };
 }
 
 function emptySnapshot(): CloudSnapshot {
@@ -166,12 +181,12 @@ function emptySnapshot(): CloudSnapshot {
       updatedAt: EVENT_EPOCH,
       activeSessionId: DEFAULT_SESSION_ID,
       activeRoundId: DEFAULT_SESSION_ID,
-      currentStage: "qa",
+      currentStage: "welcome",
       allowedPages: ["welcome", "qa"],
       revealEnabled: false,
       sweepOpen: false,
-      sweepPlumDensity: 260,
-      sweepPlumStdDev: 35,
+      sweepPlumDensity: 800,
+      sweepPlumStdDev: 100,
       sweepLeafDensity: 330,
       sweepLeafStdDev: 45,
       quizQuestionSeconds: 15,
@@ -214,8 +229,8 @@ function normalizeSession(session: Partial<ExperimentSession>, fallbackEvent: Ev
     activeWordCloudSessionId: session.activeWordCloudSessionId ?? fallbackEvent.activeWordCloudSessionId,
     wordCloudEnabled: session.wordCloudEnabled ?? fallbackEvent.wordCloudEnabled ?? false,
     wordCloudMaxEntriesPerParticipant: session.wordCloudMaxEntriesPerParticipant ?? fallbackEvent.wordCloudMaxEntriesPerParticipant,
-    sweepPlumDensity: session.sweepPlumDensity ?? fallbackEvent.sweepPlumDensity,
-    sweepPlumStdDev: session.sweepPlumStdDev ?? fallbackEvent.sweepPlumStdDev,
+    sweepPlumDensity: session.sweepPlumDensity === 260 ? 800 : (session.sweepPlumDensity ?? fallbackEvent.sweepPlumDensity),
+    sweepPlumStdDev: session.sweepPlumStdDev === 35 ? 100 : (session.sweepPlumStdDev ?? fallbackEvent.sweepPlumStdDev),
     sweepLeafDensity: session.sweepLeafDensity ?? fallbackEvent.sweepLeafDensity,
     sweepLeafStdDev: session.sweepLeafStdDev ?? fallbackEvent.sweepLeafStdDev,
     quizQuestionSeconds: session.quizQuestionSeconds ?? fallbackEvent.quizQuestionSeconds,
@@ -247,7 +262,11 @@ function eventFromSession(event: EventState, session: ExperimentSession): EventS
 
 export function getSnapshotClient(): SupabaseClient | null {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    || process.env.SUPABASE_SECRET_KEY
+    || process.env.SUPABASE_ANON_KEY
+    || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key) return null;
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false }
@@ -264,9 +283,9 @@ export async function readSnapshot(client: SupabaseClient): Promise<CloudSnapsho
   return normalizeSnapshot((data?.snapshot || emptySnapshot()) as CloudSnapshot);
 }
 
-export async function writeSnapshot(client: SupabaseClient, incoming: CloudSnapshot) {
+export async function writeSnapshot(client: SupabaseClient, incoming: CloudSnapshot, mode: "participant" | "admin" = "participant") {
   const existing = await readSnapshot(client);
-  const merged = mergeSnapshots(existing, normalizeSnapshot(incoming));
+  const merged = mergeSnapshots(existing, normalizeSnapshot(incoming), mode);
   const { error } = await client
     .from("app_state")
     .upsert({ key: STATE_KEY, snapshot: merged, updated_at: new Date().toISOString() }, { onConflict: "key" });
@@ -317,21 +336,24 @@ function normalizeSnapshot(snapshot: CloudSnapshot): CloudSnapshot {
   };
 }
 
-function mergeSnapshots(existing: CloudSnapshot, incoming: CloudSnapshot): CloudSnapshot {
-  const incomingEventIsNewer = timestamp(incoming.event.updatedAt) > timestamp(existing.event.updatedAt);
+function mergeSnapshots(existing: CloudSnapshot, incoming: CloudSnapshot, mode: "participant" | "admin") {
+  const adminWrite = mode === "admin";
+  const event = adminWrite
+    ? { ...incoming.event, updatedAt: new Date().toISOString() }
+    : existing.event;
   return {
-    event: latestEvent(existing.event, incoming.event),
-    sessions: mergeBy(existing.sessions, incoming.sessions, (x) => x.id, (prev, next) => incomingEventIsNewer ? next : prev),
-    stagePresets: incomingEventIsNewer ? incoming.stagePresets : existing.stagePresets,
+    event,
+    sessions: adminWrite ? incoming.sessions : existing.sessions,
+    stagePresets: adminWrite ? incoming.stagePresets : existing.stagePresets,
     participants: mergeBy(existing.participants, incoming.participants, (x) => x.id, mergeParticipant),
     qa: mergeBy(existing.qa, incoming.qa, (x) => x.id, mergeQa),
     sweeps: mergeBy(existing.sweeps, incoming.sweeps, (x) => `${x.roundId}:${x.participantId}`, (_, next) => next),
     randomSources: mergeBy(existing.randomSources, incoming.randomSources, (x) => `${x.roundId}:${x.participantId}:${x.sourceType}`, (_, next) => next),
     blindMappings: mergeBy(existing.blindMappings, incoming.blindMappings, (x) => `${x.roundId}:${x.participantId}:${x.blindId}`, (_, next) => next),
     quizScores: mergeBy(existing.quizScores, incoming.quizScores, (x) => `${x.roundId}:${x.participantId}`, (_, next) => next),
-    quizSession: latestQuizSession(existing.quizSession || null, incoming.quizSession || null),
+    quizSession: adminWrite ? incoming.quizSession : existing.quizSession,
     quizAnswers: mergeBy(existing.quizAnswers, incoming.quizAnswers, (x) => `${x.sessionId}:${x.participantId}:${x.questionId}`, (_, next) => next),
-    wordCloudSessions: mergeBy(existing.wordCloudSessions, incoming.wordCloudSessions, (x) => x.id, (prev, next) => incomingEventIsNewer ? next : prev),
+    wordCloudSessions: adminWrite ? incoming.wordCloudSessions : existing.wordCloudSessions,
     wordCloudEntries: mergeBy(existing.wordCloudEntries, incoming.wordCloudEntries, (x) => x.id, (_, next) => next),
     sessionVisits: mergeBy(existing.sessionVisits, incoming.sessionVisits, (x) => `${x.sessionId}:${x.participantId}`, (_, next) => next),
     ratings: mergeBy(existing.ratings, incoming.ratings, (x) => `${x.roundId}:${x.participantId}:${x.blindId}`, (_, next) => next),

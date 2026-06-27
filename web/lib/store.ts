@@ -31,6 +31,7 @@ const CLOUD_KEY = "bagua_live_cloud_v1";
 const PARTICIPANT_KEY = "bagua_live_participant_v1";
 const PRIVATE_KEY = "bagua_live_private_v1";
 let remoteSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let remoteAdminSaveChain: Promise<boolean> = Promise.resolve(true);
 const EVENT_EPOCH = "2026-01-01T00:00:00.000Z";
 const VALID_SOURCES = new Set<SourceType>(["sweep_random", "focused_true", "distracted_random"]);
 const VALID_BLINDS = new Set<BlindId>(["A", "B", "C"]);
@@ -55,12 +56,12 @@ export const DEFAULT_EVENT: EventState = {
   updatedAt: EVENT_EPOCH,
   activeSessionId: DEFAULT_SESSION_ID,
   activeRoundId: DEFAULT_SESSION_ID,
-  currentStage: "qa",
+  currentStage: "welcome",
   allowedPages: ["welcome", "qa"],
   revealEnabled: false,
   sweepOpen: false,
-  sweepPlumDensity: 260,
-  sweepPlumStdDev: 35,
+  sweepPlumDensity: 800,
+  sweepPlumStdDev: 100,
   sweepLeafDensity: 330,
   sweepLeafStdDev: 45,
   quizQuestionSeconds: 15,
@@ -98,13 +99,13 @@ export const DEFAULT_STAGE_PRESETS: StagePreset[] = [
   {
     id: "preset-sweep",
     name: "Step 1 掃地",
-    currentStage: "sweep",
+    currentStage: "welcome",
     allowedPages: ["welcome", "qa", "sweep"],
     showScreenPanel: false,
     wordCloudEnabled: false,
     wordCloudMaxEntriesPerParticipant: 3,
-    sweepPlumDensity: 260,
-    sweepPlumStdDev: 35,
+    sweepPlumDensity: 800,
+    sweepPlumStdDev: 100,
     sweepLeafDensity: 330,
     sweepLeafStdDev: 45,
     quizQuestionSeconds: 15,
@@ -120,8 +121,8 @@ export const DEFAULT_STAGE_PRESETS: StagePreset[] = [
     wordCloudEnabled: true,
     wordCloudPrompt: "說到「易經」你會想到什麼？",
     wordCloudMaxEntriesPerParticipant: 3,
-    sweepPlumDensity: 260,
-    sweepPlumStdDev: 35,
+    sweepPlumDensity: 800,
+    sweepPlumStdDev: 100,
     sweepLeafDensity: 330,
     sweepLeafStdDev: 45,
     quizQuestionSeconds: 15,
@@ -136,8 +137,8 @@ export const DEFAULT_STAGE_PRESETS: StagePreset[] = [
     showScreenPanel: false,
     wordCloudEnabled: false,
     wordCloudMaxEntriesPerParticipant: 3,
-    sweepPlumDensity: 260,
-    sweepPlumStdDev: 35,
+    sweepPlumDensity: 800,
+    sweepPlumStdDev: 100,
     sweepLeafDensity: 330,
     sweepLeafStdDev: 45,
     quizQuestionSeconds: 15,
@@ -152,8 +153,8 @@ export const DEFAULT_STAGE_PRESETS: StagePreset[] = [
     showScreenPanel: true,
     wordCloudEnabled: false,
     wordCloudMaxEntriesPerParticipant: 3,
-    sweepPlumDensity: 260,
-    sweepPlumStdDev: 35,
+    sweepPlumDensity: 800,
+    sweepPlumStdDev: 100,
     sweepLeafDensity: 330,
     sweepLeafStdDev: 45,
     quizQuestionSeconds: 15,
@@ -168,8 +169,8 @@ export const DEFAULT_STAGE_PRESETS: StagePreset[] = [
     showScreenPanel: false,
     wordCloudEnabled: false,
     wordCloudMaxEntriesPerParticipant: 3,
-    sweepPlumDensity: 260,
-    sweepPlumStdDev: 35,
+    sweepPlumDensity: 800,
+    sweepPlumStdDev: 100,
     sweepLeafDensity: 330,
     sweepLeafStdDev: 45,
     quizQuestionSeconds: 15,
@@ -184,8 +185,8 @@ export const DEFAULT_STAGE_PRESETS: StagePreset[] = [
     showScreenPanel: false,
     wordCloudEnabled: false,
     wordCloudMaxEntriesPerParticipant: 3,
-    sweepPlumDensity: 260,
-    sweepPlumStdDev: 35,
+    sweepPlumDensity: 800,
+    sweepPlumStdDev: 100,
     sweepLeafDensity: 330,
     sweepLeafStdDev: 45,
     quizQuestionSeconds: 15,
@@ -200,8 +201,8 @@ export const DEFAULT_STAGE_PRESETS: StagePreset[] = [
     showScreenPanel: true,
     wordCloudEnabled: false,
     wordCloudMaxEntriesPerParticipant: 3,
-    sweepPlumDensity: 260,
-    sweepPlumStdDev: 35,
+    sweepPlumDensity: 800,
+    sweepPlumStdDev: 100,
     sweepLeafDensity: 330,
     sweepLeafStdDev: 45,
     quizQuestionSeconds: 15,
@@ -216,9 +217,24 @@ const LEGACY_STAGE_PRESET_IDS = new Set(["preset-opening", "preset-casting", "pr
 function normalizeStagePresets(presets: StagePreset[] | undefined, basePresets = DEFAULT_STAGE_PRESETS) {
   const rows = presets?.length ? presets : basePresets;
   const hasLegacyPresets = rows.some((preset) => preset.id === "preset-opening" || preset.allowedPages?.includes("progress") || (preset.id === "preset-quiz" && preset.name.includes("Step 3")));
-  if (!hasLegacyPresets) return rows.map((preset) => ({ ...preset, allowedPages: preset.allowedPages || [] }));
+  if (!hasLegacyPresets) return rows.map((preset) => migrateBuiltInPreset({ ...preset, allowedPages: preset.allowedPages || [] }));
   const custom = rows.filter((preset) => !LEGACY_STAGE_PRESET_IDS.has(preset.id) && !DEFAULT_STAGE_PRESET_IDS.has(preset.id));
-  return [...basePresets, ...custom].map((preset) => ({ ...preset, allowedPages: preset.allowedPages || [] }));
+  return [...basePresets, ...custom].map((preset) => migrateBuiltInPreset({ ...preset, allowedPages: preset.allowedPages || [] }));
+}
+
+function migrateBuiltInPreset(preset: StagePreset): StagePreset {
+  if (!DEFAULT_STAGE_PRESET_IDS.has(preset.id)) return preset;
+  const migrated = {
+    ...preset,
+    sweepPlumDensity: preset.sweepPlumDensity === 260 ? 800 : preset.sweepPlumDensity,
+    sweepPlumStdDev: preset.sweepPlumStdDev === 35 ? 100 : preset.sweepPlumStdDev
+  };
+  if (preset.id !== "preset-sweep") return migrated;
+  return {
+    ...migrated,
+    currentStage: "welcome",
+    allowedPages: Array.from(new Set(["welcome", "qa", "sweep", ...preset.allowedPages]))
+  };
 }
 
 export const DEFAULT_PRIVATE: LocalPrivateData = {
@@ -243,8 +259,8 @@ function normalizeSession(session: Partial<ExperimentSession>, fallbackEvent = D
     activeWordCloudSessionId: session.activeWordCloudSessionId ?? fallbackEvent.activeWordCloudSessionId,
     wordCloudEnabled: session.wordCloudEnabled ?? fallbackEvent.wordCloudEnabled ?? false,
     wordCloudMaxEntriesPerParticipant: session.wordCloudMaxEntriesPerParticipant ?? fallbackEvent.wordCloudMaxEntriesPerParticipant,
-    sweepPlumDensity: session.sweepPlumDensity ?? fallbackEvent.sweepPlumDensity,
-    sweepPlumStdDev: session.sweepPlumStdDev ?? fallbackEvent.sweepPlumStdDev,
+    sweepPlumDensity: session.sweepPlumDensity === 260 ? 800 : (session.sweepPlumDensity ?? fallbackEvent.sweepPlumDensity),
+    sweepPlumStdDev: session.sweepPlumStdDev === 35 ? 100 : (session.sweepPlumStdDev ?? fallbackEvent.sweepPlumStdDev),
     sweepLeafDensity: session.sweepLeafDensity ?? fallbackEvent.sweepLeafDensity,
     sweepLeafStdDev: session.sweepLeafStdDev ?? fallbackEvent.sweepLeafStdDev,
     quizQuestionSeconds: session.quizQuestionSeconds ?? fallbackEvent.quizQuestionSeconds,
@@ -380,9 +396,15 @@ export function saveCloudLocal(snapshot: CloudSnapshot) {
   localStorage.setItem(CLOUD_KEY, JSON.stringify(snapshot));
 }
 
-export function saveCloud(snapshot: CloudSnapshot) {
+export function saveCloud(snapshot: CloudSnapshot, mode: "participant" | "admin" = "participant") {
   saveCloudLocal(snapshot);
+  if (mode === "admin") {
+    const payload = cloneForRemote(snapshot);
+    remoteAdminSaveChain = remoteAdminSaveChain.then(() => pushRemoteCloud(payload, "admin"));
+    return remoteAdminSaveChain;
+  }
   queueRemoteCloudSave(snapshot);
+  return undefined;
 }
 
 function queueRemoteCloudSave(snapshot: CloudSnapshot) {
@@ -390,7 +412,7 @@ function queueRemoteCloudSave(snapshot: CloudSnapshot) {
   if (remoteSaveTimer) clearTimeout(remoteSaveTimer);
   const payload = cloneForRemote(snapshot);
   remoteSaveTimer = setTimeout(() => {
-    void pushRemoteCloud(payload);
+    void pushRemoteCloud(payload, "participant");
   }, 250);
 }
 
@@ -412,16 +434,18 @@ export async function fetchRemoteCloud(participantId?: string): Promise<CloudSna
   }
 }
 
-export async function pushRemoteCloud(snapshot: CloudSnapshot) {
+export async function pushRemoteCloud(snapshot: CloudSnapshot, mode: "participant" | "admin" = "participant") {
   try {
     const res = await fetch("/api/snapshot", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ snapshot })
+      body: JSON.stringify({ snapshot, mode })
     });
-    await res.text();
+    const json = await res.json() as { ok?: boolean };
+    return res.ok && json.ok === true;
   } catch {
     // Local-first: a failed remote sync must not break the on-site flow.
+    return false;
   }
 }
 

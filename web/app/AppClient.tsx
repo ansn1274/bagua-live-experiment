@@ -232,10 +232,11 @@ function currentPageAllowed(snapshot: CloudSnapshot, page: StageKey) {
   return page === "welcome" || snapshot.event.allowedPages.includes(page);
 }
 
-function useExperimentState() {
+function useExperimentState(mode: "participant" | "admin" = "participant") {
   const [snapshot, setSnapshot] = useState<CloudSnapshot>(() => createEmptyCloud());
   const [participant, setParticipant] = useState<Participant | null>(null);
   const [privateData, setPrivateData] = useState<LocalPrivateData>(DEFAULT_PRIVATE);
+  const [syncState, setSyncState] = useState<"idle" | "syncing" | "synced" | "error">("idle");
   const snapshotJsonRef = useRef("");
 
   const setCloudSnapshot = (next: CloudSnapshot, persistLocal = true) => {
@@ -255,12 +256,17 @@ function useExperimentState() {
 
     let active = true;
     void fetchRemoteCloud(person.id).then((remote) => {
-      if (!active || !remote) return;
+      if (!active) return;
+      if (!remote) {
+        if (mode === "admin") setSyncState("error");
+        return;
+      }
       const merged = clone(remote);
       const existing = merged.participants.find((p) => p.id === person.id);
       if (!existing) merged.participants.push(person);
       else if (!existing.recoveryCode) existing.recoveryCode = person.recoveryCode;
       setCloudSnapshot(merged);
+      if (mode === "admin") setSyncState("synced");
     });
 
     return () => {
@@ -279,7 +285,11 @@ function useExperimentState() {
     let active = true;
     const syncRemote = async () => {
       const remote = await fetchRemoteCloud(participant.id);
-      if (!active || !remote) return;
+      if (!active) return;
+      if (!remote) {
+        if (mode === "admin") setSyncState("error");
+        return;
+      }
       const merged = clone(remote);
       const localParticipant = loadParticipant();
       if (localParticipant) {
@@ -288,6 +298,7 @@ function useExperimentState() {
         else if (!existing.recoveryCode) existing.recoveryCode = localParticipant.recoveryCode;
       }
       setCloudSnapshot(merged);
+      if (mode === "admin") setSyncState("synced");
     };
     const timer = window.setInterval(syncRemote, 2000);
     void syncRemote();
@@ -301,7 +312,11 @@ function useExperimentState() {
     setSnapshot((prev) => {
       const draft = clone(prev);
       fn(draft);
-      saveCloud(draft);
+      const pendingSave = saveCloud(draft, mode);
+      if (mode === "admin" && pendingSave) {
+        setSyncState("syncing");
+        void pendingSave.then((ok) => setSyncState(ok ? "synced" : "error"));
+      }
       snapshotJsonRef.current = JSON.stringify(draft);
       return draft;
     });
@@ -314,7 +329,7 @@ function useExperimentState() {
     setPrivateData(draft);
   };
 
-  return { snapshot, participant, privateData, setParticipant, updateCloud, updatePrivate };
+  return { snapshot, participant, privateData, syncState, setParticipant, updateCloud, updatePrivate };
 }
 
 function HexMini({ hex }: { hex: ReturnType<typeof numbersToHexagram> }) {
@@ -691,8 +706,8 @@ function SweepPanel({ snapshot, participant, updateCloud }: {
   const [sweeping, setSweeping] = useState(false);
   const [startedAt] = useState<number>(() => Date.now());
   const roundId = getRoundId(snapshot);
-  const plumDensity = Math.max(20, Math.min(900, snapshot.event.sweepPlumDensity ?? 260));
-  const plumStdDev = Math.max(0, Math.min(400, snapshot.event.sweepPlumStdDev ?? 35));
+  const plumDensity = Math.max(20, Math.min(900, snapshot.event.sweepPlumDensity ?? 800));
+  const plumStdDev = Math.max(0, Math.min(400, snapshot.event.sweepPlumStdDev ?? 100));
   const leafDensity = Math.max(20, Math.min(900, snapshot.event.sweepLeafDensity ?? 330));
   const leafStdDev = Math.max(0, Math.min(400, snapshot.event.sweepLeafStdDev ?? 45));
   const existing = participant ? publicData(snapshot, participant.id, roundId).sweep : null;
@@ -1461,10 +1476,10 @@ function AdminPanel({ snapshot, updateCloud }: {
         <h2>Sweep Monitor</h2>
         <div className="inline-form">
           <label>梅花平均
-            <input type="number" min={20} max={900} value={snapshot.event.sweepPlumDensity ?? 260} onChange={(e) => updateCloud((draft) => { draft.event.sweepPlumDensity = Math.max(20, Math.min(900, Number(e.target.value) || 260)); touchEvent(draft); })} />
+            <input type="number" min={20} max={900} value={snapshot.event.sweepPlumDensity ?? 800} onChange={(e) => updateCloud((draft) => { draft.event.sweepPlumDensity = Math.max(20, Math.min(900, Number(e.target.value) || 800)); touchEvent(draft); })} />
           </label>
           <label>梅花標準差
-            <input type="number" min={0} max={400} value={snapshot.event.sweepPlumStdDev ?? 35} onChange={(e) => updateCloud((draft) => { draft.event.sweepPlumStdDev = Math.max(0, Math.min(400, Number(e.target.value) || 0)); touchEvent(draft); })} />
+            <input type="number" min={0} max={400} value={snapshot.event.sweepPlumStdDev ?? 100} onChange={(e) => updateCloud((draft) => { draft.event.sweepPlumStdDev = Math.max(0, Math.min(400, Number(e.target.value) || 0)); touchEvent(draft); })} />
           </label>
           <label>葉子平均
             <input type="number" min={20} max={900} value={snapshot.event.sweepLeafDensity ?? 330} onChange={(e) => updateCloud((draft) => { draft.event.sweepLeafDensity = Math.max(20, Math.min(900, Number(e.target.value) || 330)); touchEvent(draft); })} />
@@ -1614,6 +1629,7 @@ function ParticipantShell() {
   const { snapshot, participant, privateData, setParticipant, updateCloud, updatePrivate } = useExperimentState();
   const [clientReady, setClientReady] = useState(false);
   const [page, setPage] = useState<StageKey>(snapshot.event.currentStage || "welcome");
+  const [entryGate, setEntryGate] = useState({ roundId: "", started: false, accepted: false });
   const lastAdminStageRef = useRef<StageKey | null>(null);
   const allowedKey = snapshot.event.allowedPages.join("|");
 
@@ -1646,7 +1662,24 @@ function ParticipantShell() {
   }, [participant?.id, snapshot.event.activeSessionId, snapshot.sessionVisits, updateCloud]);
 
   const activeRoundId = getRoundId(snapshot);
-  const introSweepRequired = !!participant && !publicData(snapshot, participant.id, activeRoundId).sweepCompleted;
+  const sweepCompleted = !!participant && publicData(snapshot, participant.id, activeRoundId).sweepCompleted;
+  useEffect(() => {
+    if (!participant) return;
+    const pendingKey = `bagua_sweep_entry_pending:${participant.id}:${activeRoundId}`;
+    if (!sweepCompleted) localStorage.setItem(pendingKey, "1");
+    const pendingWelcome = localStorage.getItem(pendingKey) === "1";
+    setEntryGate((current) => {
+      if (current.roundId !== activeRoundId) {
+        return { roundId: activeRoundId, started: !sweepCompleted || pendingWelcome, accepted: false };
+      }
+      if (!sweepCompleted && !current.started) return { ...current, started: true };
+      return current;
+    });
+  }, [activeRoundId, participant, sweepCompleted]);
+  const introSweepRequired = !!participant && (
+    !sweepCompleted
+    || (entryGate.roundId === activeRoundId && entryGate.started && !entryGate.accepted)
+  );
   const allowed = currentPageAllowed(snapshot, page);
   const visibleStages = STAGES.filter((s) => currentPageAllowed(snapshot, s.key));
   const saveNickname = (value: string) => {
@@ -1701,6 +1734,17 @@ function ParticipantShell() {
         <div className="sweep-intro-board">
           <SweepPanel snapshot={snapshot} participant={participant} updateCloud={updateCloud} />
         </div>
+        {sweepCompleted && (
+          <div className="sweep-entry-action">
+            <button type="button" onClick={() => {
+              localStorage.removeItem(`bagua_sweep_entry_pending:${participant.id}:${activeRoundId}`);
+              setEntryGate((current) => ({ ...current, accepted: true }));
+              setPage("welcome");
+            }}>
+              歡迎來到梅花易數
+            </button>
+          </div>
+        )}
       </main>
     );
   }
@@ -1731,13 +1775,19 @@ function ParticipantShell() {
 }
 
 export function AdminPageShell() {
-  const { snapshot, updateCloud } = useExperimentState();
+  const { snapshot, syncState, updateCloud } = useExperimentState("admin");
   return (
     <main className="app-shell">
       <header className="app-header">
         <div>
           <p className="eyebrow">Admin</p>
           <h1>梅花易數三盲互動實驗管理端</h1>
+        </div>
+        <div className={`sync-indicator ${syncState}`}>
+          {syncState === "syncing" && "正在儲存到雲端"}
+          {syncState === "synced" && "已儲存到雲端"}
+          {syncState === "error" && "雲端儲存失敗，請檢查 Supabase 環境變數"}
+          {syncState === "idle" && "正在連線"}
         </div>
       </header>
       <AdminPanel snapshot={snapshot} updateCloud={updateCloud} />

@@ -26,11 +26,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = await request.json() as { snapshot?: CloudSnapshot };
+    const body = await request.json() as { snapshot?: CloudSnapshot; mode?: "participant" | "admin" };
     if (!body.snapshot) {
       return NextResponse.json({ ok: false, reason: "missing_snapshot" }, { status: 400 });
     }
-    const snapshot = await writeSnapshot(client, body.snapshot);
+    const snapshot = await writeSnapshot(client, body.snapshot, body.mode === "admin" ? "admin" : "participant");
     return NextResponse.json({ ok: true, snapshot: sanitizeSnapshot(snapshot) });
   } catch (error) {
     return NextResponse.json({ ok: false, reason: "snapshot_write_failed", detail: String(error) }, { status: 500 });

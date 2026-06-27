@@ -120,10 +120,48 @@ th { color: var(--ink); background: rgba(122, 100, 58, 0.08); }
 .app-shell { min-height: 100vh; padding: 1rem; }
 
 .sweep-intro-shell {
+  position: relative;
   min-height: 100vh;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   padding: clamp(0.75rem, 2vw, 1.25rem);
+}
+
+.sweep-entry-action {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  bottom: max(1.5rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(92vw, 28rem);
+  display: grid;
+}
+.sweep-entry-action button {
+  min-height: 3.4rem;
+  border-color: #e3bd63;
+  background: #982f28;
+  color: #fff8df;
+  font-size: 1.08rem;
+  font-weight: 800;
+  box-shadow: 0 12px 32px rgba(35, 18, 10, 0.34);
+}
+.sweep-entry-action button:hover {
+  background: #7f2722;
+}
+
+.sync-indicator {
+  flex: 0 0 auto;
+  max-width: min(42vw, 24rem);
+  padding: 0.45rem 0.65rem;
+  border: 1px solid rgba(246, 223, 155, 0.42);
+  border-radius: var(--radius);
+  color: #f6df9b;
+  font-size: 0.8rem;
+  text-align: right;
+}
+.sync-indicator.error {
+  border-color: #ffb4a9;
+  color: #ffd5cf;
 }
 
 .sweep-intro-board {
