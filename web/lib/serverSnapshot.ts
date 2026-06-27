@@ -273,9 +273,9 @@ export function getSnapshotClient(): SupabaseClient | null {
   });
 }
 
-export async function readSnapshot(client: SupabaseClient): Promise<CloudSnapshot> {
+export async function readSnapshot(client: SupabaseClient, timeoutMs = 10000): Promise<CloudSnapshot> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const { data, error } = await client
       .from("app_state")
@@ -288,6 +288,29 @@ export async function readSnapshot(client: SupabaseClient): Promise<CloudSnapsho
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function compactStoredSnapshot(client: SupabaseClient) {
+  const snapshot = await readSnapshot(client, 90000);
+  const beforeBytes = Buffer.byteLength(JSON.stringify(snapshot), "utf8");
+  const boardItemCount = snapshot.sweeps.reduce((total, sweep) => total + (sweep.boardItems?.length || 0), 0);
+  const compacted = compactSnapshot(snapshot);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
+  try {
+    const { error } = await client
+      .from("app_state")
+      .upsert({ key: STATE_KEY, snapshot: compacted, updated_at: new Date().toISOString() }, { onConflict: "key" })
+      .abortSignal(controller.signal);
+    if (error) throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+  return {
+    beforeBytes,
+    afterBytes: Buffer.byteLength(JSON.stringify(compacted), "utf8"),
+    removedBoardItems: boardItemCount
+  };
 }
 
 export async function writeSnapshot(client: SupabaseClient, incoming: CloudSnapshot, mode: "participant" | "admin" = "participant") {
