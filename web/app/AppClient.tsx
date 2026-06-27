@@ -238,6 +238,8 @@ function useExperimentState(mode: "participant" | "admin" = "participant") {
   const [privateData, setPrivateData] = useState<LocalPrivateData>(DEFAULT_PRIVATE);
   const [syncState, setSyncState] = useState<"idle" | "syncing" | "synced" | "error">("idle");
   const snapshotJsonRef = useRef("");
+  const pendingWritesRef = useRef(0);
+  const localMutationVersionRef = useRef(0);
 
   const setCloudSnapshot = (next: CloudSnapshot, persistLocal = true) => {
     const json = JSON.stringify(next);
@@ -255,12 +257,14 @@ function useExperimentState(mode: "participant" | "admin" = "participant") {
     setPrivateData(loadPrivate());
 
     let active = true;
+    const startedVersion = localMutationVersionRef.current;
     void fetchRemoteCloud(person.id).then((remote) => {
       if (!active) return;
       if (!remote) {
         if (mode === "admin") setSyncState("error");
         return;
       }
+      if (pendingWritesRef.current > 0 || startedVersion !== localMutationVersionRef.current) return;
       const merged = clone(remote);
       const existing = merged.participants.find((p) => p.id === person.id);
       if (!existing) merged.participants.push(person);
@@ -275,7 +279,10 @@ function useExperimentState(mode: "participant" | "admin" = "participant") {
   }, []);
 
   useEffect(() => {
-    const sync = () => setCloudSnapshot(loadCloud(), false);
+    const sync = () => {
+      if (pendingWritesRef.current > 0) return;
+      setCloudSnapshot(loadCloud(), false);
+    };
     window.addEventListener("storage", sync);
     return () => window.removeEventListener("storage", sync);
   }, []);
@@ -284,12 +291,15 @@ function useExperimentState(mode: "participant" | "admin" = "participant") {
     if (!participant) return;
     let active = true;
     const syncRemote = async () => {
+      if (pendingWritesRef.current > 0) return;
+      const startedVersion = localMutationVersionRef.current;
       const remote = await fetchRemoteCloud(participant.id);
       if (!active) return;
       if (!remote) {
         if (mode === "admin") setSyncState("error");
         return;
       }
+      if (pendingWritesRef.current > 0 || startedVersion !== localMutationVersionRef.current) return;
       const merged = clone(remote);
       const localParticipant = loadParticipant();
       if (localParticipant) {
@@ -312,11 +322,16 @@ function useExperimentState(mode: "participant" | "admin" = "participant") {
     setSnapshot((prev) => {
       const draft = clone(prev);
       fn(draft);
+      localMutationVersionRef.current += 1;
+      pendingWritesRef.current += 1;
       const pendingSave = saveCloud(draft, mode);
-      if (mode === "admin" && pendingSave) {
+      if (mode === "admin") {
         setSyncState("syncing");
-        void pendingSave.then((ok) => setSyncState(ok ? "synced" : "error"));
       }
+      void pendingSave.then((ok) => {
+        pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
+        if (mode === "admin") setSyncState(ok ? "synced" : "error");
+      });
       snapshotJsonRef.current = JSON.stringify(draft);
       return draft;
     });

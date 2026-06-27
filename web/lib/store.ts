@@ -31,6 +31,8 @@ const CLOUD_KEY = "bagua_live_cloud_v1";
 const PARTICIPANT_KEY = "bagua_live_participant_v1";
 const PRIVATE_KEY = "bagua_live_private_v1";
 let remoteSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let remoteParticipantSaveChain: Promise<boolean> = Promise.resolve(true);
+let remoteSaveWaiters: Array<(ok: boolean) => void> = [];
 let remoteAdminSaveChain: Promise<boolean> = Promise.resolve(true);
 const EVENT_EPOCH = "2026-01-01T00:00:00.000Z";
 const VALID_SOURCES = new Set<SourceType>(["sweep_random", "focused_true", "distracted_random"]);
@@ -403,17 +405,22 @@ export function saveCloud(snapshot: CloudSnapshot, mode: "participant" | "admin"
     remoteAdminSaveChain = remoteAdminSaveChain.then(() => pushRemoteCloud(payload, "admin"));
     return remoteAdminSaveChain;
   }
-  queueRemoteCloudSave(snapshot);
-  return undefined;
+  return queueRemoteCloudSave(snapshot);
 }
 
 function queueRemoteCloudSave(snapshot: CloudSnapshot) {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") return Promise.resolve(false);
   if (remoteSaveTimer) clearTimeout(remoteSaveTimer);
   const payload = cloneForRemote(snapshot);
+  const pending = new Promise<boolean>((resolve) => remoteSaveWaiters.push(resolve));
   remoteSaveTimer = setTimeout(() => {
-    void pushRemoteCloud(payload, "participant");
+    remoteSaveTimer = null;
+    const waiters = remoteSaveWaiters;
+    remoteSaveWaiters = [];
+    remoteParticipantSaveChain = remoteParticipantSaveChain.then(() => pushRemoteCloud(payload, "participant"));
+    void remoteParticipantSaveChain.then((ok) => waiters.forEach((resolve) => resolve(ok)));
   }, 250);
+  return pending;
 }
 
 function cloneForRemote(snapshot: CloudSnapshot): CloudSnapshot {
