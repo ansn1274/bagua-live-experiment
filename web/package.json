@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "data:zhouyi": "node ../scripts/fetch-zhouyi.mjs",
+    "data:zhouyi:browser": "node ../scripts/fetch-zhouyi.mjs --from-browser"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",

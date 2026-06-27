@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bagua-live-experiment.local/schemas/zhouyi.schema.json",
+  "title": "周易經傳結構化資料",
+  "type": "object",
+  "required": ["schemaVersion", "source", "stats", "hexagrams", "tenWings"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "title": { "type": "string" },
+    "language": { "const": "zh-Hant" },
+    "source": { "$ref": "#/$defs/source" },
+    "stats": {
+      "type": "object",
+      "required": ["hexagramCount", "regularLineCount", "specialLineCount", "tenWingPartCount"],
+      "properties": {
+        "hexagramCount": { "const": 64 },
+        "regularLineCount": { "const": 384 },
+        "specialLineCount": { "const": 2 },
+        "tenWingPartCount": { "const": 10 }
+      }
+    },
+    "hexagrams": {
+      "type": "array",
+      "minItems": 64,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/hexagram" }
+    },
+    "tenWings": {
+      "type": "object",
+      "required": ["tuanUpper", "tuanLower", "xiangUpper", "xiangLower", "wenyan", "xiciUpper", "xiciLower", "shuogua", "xugua", "zagua"]
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "required": ["title", "url"],
+      "properties": {
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "revisionId": { "type": ["integer", "null"] },
+        "captureMethod": { "type": "string" }
+      }
+    },
+    "statement": {
+      "type": "object",
+      "required": ["position", "label", "text"],
+      "properties": {
+        "position": { "type": "integer", "minimum": 1, "maximum": 6 },
+        "label": { "type": "string" },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "hexagram": {
+      "type": "object",
+      "required": ["number", "name", "glyph", "composition", "classic", "wings", "source"],
+      "properties": {
+        "number": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "name": { "type": "string" },
+        "aliases": { "type": "array", "items": { "type": "string" } },
+        "glyph": { "type": "string" },
+        "canonSection": { "enum": ["upper", "lower"] },
+        "composition": {
+          "type": "object",
+          "required": ["lowerTrigram", "upperTrigram", "text"]
+        },
+        "classic": {
+          "type": "object",
+          "required": ["judgment", "lines", "specialLine"],
+          "properties": {
+            "judgment": { "type": "object", "required": ["paragraphs", "text"] },
+            "lines": {
+              "type": "array",
+              "minItems": 6,
+              "maxItems": 6,
+              "items": { "$ref": "#/$defs/statement" }
+            },
+            "specialLine": { "type": ["object", "null"] }
+          }
+        },
+        "wings": {
+          "type": "object",
+          "required": ["tuan", "xiang", "wenyan"],
+          "properties": {
+            "tuan": { "type": "object", "required": ["paragraphs", "text"] },
+            "xiang": { "type": "object", "required": ["greatImage", "lineImages"] },
+            "wenyan": { "type": ["object", "null"] }
+          }
+        },
+        "source": { "$ref": "#/$defs/source" }
+      }
+    }
+  }
+}
