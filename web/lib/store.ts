@@ -242,6 +242,7 @@ function migrateBuiltInPreset(preset: StagePreset): StagePreset {
 export const DEFAULT_PRIVATE: LocalPrivateData = {
   domain: "",
   supplement: "",
+  question: "",
   gptPrompt: "",
   gptRaw: "",
   parsedCards: []

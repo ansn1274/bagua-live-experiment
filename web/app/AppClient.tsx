@@ -14,8 +14,8 @@ import {
   Trophy,
   UserRound
 } from "lucide-react";
-import { currentEarthlyBranch, numbersToHexagram, sourceLabel, TRIGRAMS, type SourceType } from "../lib/meihua";
-import { buildMyGptUserPrompt, parseGptJson } from "../lib/prompt";
+import { currentEarthlyBranch, numbersToHexagram, relationForTrigrams, sourceLabel, TRIGRAMS, type SourceType } from "../lib/meihua";
+import { buildGptBUserPrompt, buildMyGptUserPrompt, parseGptJson } from "../lib/prompt";
 import { computeStats, computeStatsForRoundIds, numberText, percent, type StatsResult } from "../lib/statistics";
 import {
   DEFAULT_PRIVATE,
@@ -182,10 +182,10 @@ const PRACTICE_STEPS = [
   "判斷五行生剋",
   "顯示本卦、變卦、互卦",
   "閱讀卦辭、爻辭",
-  "分析體用與五行",
-  "分析變卦與體卦",
-  "綜合互卦、體用、變卦",
-  "回顧真卦 GPT response"
+  "分析五行生剋",
+  "分析八卦應象",
+  "進行綜合分析",
+  "準備揭曉後深入討論"
 ];
 
 function clone<T>(value: T): T {
@@ -897,7 +897,7 @@ function CastingPanel({ snapshot, participant, privateData, updatePrivate, updat
         <ShieldCheck />
         <div>
           <strong>起卦隱私提醒</strong>
-          <p>你具體想問的問題請在心中默想，不需要輸入。領域、prompt、My GPT 回覆只存在自己的裝置；講者與其他人看不到。My GPT 也會在你自己的帳號中執行。</p>
+          <p>你的完整占問、prompt、My GPT 回覆只存在自己的裝置；講者與其他人看不到。My GPT 也會在你自己的帳號中執行。</p>
           <p>請不要使用無痕模式；若 localStorage 消失，私密內容無法恢復。</p>
         </div>
       </div>
@@ -917,7 +917,11 @@ function CastingPanel({ snapshot, participant, privateData, updatePrivate, updat
       <label>極短補充，選填，30 字以內
         <input value={privateData.supplement} maxLength={30} onChange={(e) => updatePrivate((draft) => { draft.supplement = e.target.value.slice(0, 30); })} placeholder="例如：遠距關係、升學選擇、失聯朋友" />
       </label>
-      <p className="muted">不要輸入姓名、事件細節、已知結果或明確線索。完整問題只在心中默想。</p>
+      <p className="muted">領域與極短補充會提供給三盲卡片 GPT A；不要在這兩欄輸入姓名、已知結果或明確線索。</p>
+      <label>你的完整占問，只留在本機
+        <textarea value={privateData.question} maxLength={500} rows={4} onChange={(e) => updatePrivate((draft) => { draft.question = e.target.value.slice(0, 500); })} placeholder="例如：我正在考慮要不要接下班上的新任務，但怕影響準備考試，這段時間適合怎麼安排？" />
+      </label>
+      <p className="muted">這段內容不會交給三盲卡片 GPT A，也不會上傳；揭曉後只用來產生你貼給 GPT B 的深入討論 prompt。</p>
       {existing ? (
         <div className="done-box">
           <Check />
@@ -936,11 +940,16 @@ function CastingPanel({ snapshot, participant, privateData, updatePrivate, updat
               <input inputMode="numeric" value={n2} onChange={(e) => setN2(e.target.value.replace(/\D/g, ""))} />
             </label>
           </div>
-          <button className="primary" disabled={!participant || !n1 || !n2 || !privateData.domain.trim()} onClick={() => {
+          <button className="primary" disabled={!participant || !n1 || !n2 || !privateData.domain.trim() || !privateData.question.trim()} onClick={() => {
             if (!participant) return;
             const branch = currentEarthlyBranch();
             updateCloud((draft) => {
               upsertRandomSource(draft, participant.id, roundId, "focused_true", Number(n1), Number(n2), undefined, branch.num);
+              const sweep = draft.sweeps.find((row) => row.participantId === participant.id && row.roundId === roundId);
+              if (sweep) {
+                sweep.hexagram = numbersToHexagram(sweep.plumCount, sweep.leafCount, { timeBranchNum: branch.num });
+                upsertRandomSource(draft, participant.id, roundId, "sweep_random", sweep.plumCount, sweep.leafCount, "anchored_to_focused_casting_time", branch.num);
+              }
             });
           }}>保存起卦資料</button>
         </>
@@ -1005,7 +1014,8 @@ function QuizPanel({ snapshot, participant, updateCloud }: {
     updateCloud((draft) => {
       saveQuizAnswer(draft, row);
       if (correct && currentQuestion.kind === "random_numbers" && n1 && n2) {
-        upsertRandomSource(draft, participant.id, roundId, "distracted_random", n1, n2, "quiz_speed_input");
+        const focused = draft.randomSources.find((source) => source.participantId === participant.id && source.roundId === roundId && source.sourceType === "focused_true");
+        upsertRandomSource(draft, participant.id, roundId, "distracted_random", n1, n2, "quiz_speed_input", focused?.hexagram.timeBranchNum);
       }
     });
   };
@@ -1102,7 +1112,10 @@ function PromptPanel({ snapshot, participant, privateData, updateCloud, updatePr
         if (!participant) return;
         const a = Math.floor(100 + Math.random() * 900);
         const b = Math.floor(100 + Math.random() * 900);
-        updateCloud((draft) => upsertRandomSource(draft, participant.id, roundId, "distracted_random", a, b, "auto_generated_not_participant_input"));
+        updateCloud((draft) => {
+          const focused = draft.randomSources.find((source) => source.participantId === participant.id && source.roundId === roundId && source.sourceType === "focused_true");
+          upsertRandomSource(draft, participant.id, roundId, "distracted_random", a, b, "auto_generated_not_participant_input", focused?.hexagram.timeBranchNum);
+        });
       }}>用系統自動亂數補分心對照</button>}
       {hasAllSources && !mappings.length && <p className="warn">三組卦已完成，請先鎖定 A/B/C 盲化順序，再複製 prompt。</p>}
       {hasAllSources && mappings.length === 3 && !privateData.domain.trim() && <p className="warn">請先在起卦頁選擇領域類型；領域與補充文字只存在本機。</p>}
@@ -1278,6 +1291,10 @@ function RevealPanel({ snapshot, participant, privateData }: {
   const mappings = participant ? snapshot.blindMappings.filter((m) => m.participantId === participant.id && m.roundId === roundId) : [];
   const trueBlind = mappings.find((m) => m.sourceType === "focused_true")?.blindId;
   const sourceByBlind = new Map(mappings.map((m) => [m.blindId, m.sourceType]));
+  const focused = participant ? snapshot.randomSources.find((source) => source.participantId === participant.id && source.roundId === roundId && source.sourceType === "focused_true") : undefined;
+  const trueCard = privateData.parsedCards.find((card) => card.blind_id === trueBlind);
+  const gptBPrompt = focused ? buildGptBUserPrompt(privateData, focused, trueCard) : "";
+  const [copyMessage, setCopyMessage] = useState("");
   return (
     <section className="panel-card">
       <div className="section-head">
@@ -1301,6 +1318,25 @@ function RevealPanel({ snapshot, participant, privateData }: {
             </div>
           );
         }) : <p className="muted">尚未解析 My GPT JSON。</p>}
+      </div>
+      <div className="panel-card inner">
+        <div className="section-head">
+          <Copy />
+          <div>
+            <p className="eyebrow">GPT B</p>
+            <h3>帶著真卦深入討論</h3>
+          </div>
+        </div>
+        <p className="muted">盲評已經結束，這份 user prompt 會把真卦、計算資料、你的本機占問與真卦卡整理給 GPT B。它不包含 system prompt，也不會上傳到本系統。</p>
+        {!privateData.question.trim() && <p className="warn">本機沒有保存完整占問。可以先回「起卦」頁補上，或複製後直接在 GPT B 對話中補充。</p>}
+        {!focused && <p className="warn">找不到本輪專注起卦資料，暫時無法產生 GPT B prompt。</p>}
+        <textarea value={gptBPrompt} readOnly rows={18} />
+        <div className="actions">
+          <button className="primary" disabled={!gptBPrompt} onClick={() => void copyText(gptBPrompt).then(() => setCopyMessage("GPT B prompt 已複製。")).catch(() => setCopyMessage("複製失敗，請手動全選複製。"))}>
+            複製給 GPT B 的討論 Prompt
+          </button>
+        </div>
+        {copyMessage && <p className={copyMessage.includes("失敗") ? "warn" : "status-line"}>{copyMessage}</p>}
       </div>
     </section>
   );
@@ -1326,6 +1362,17 @@ function PracticePanel({ snapshot, participant }: { snapshot: CloudSnapshot; par
     );
   }
   const h = focused.hexagram;
+  const trigramInfo = (name: typeof h.bodyTrigramName) => Object.values(TRIGRAMS).find((trigram) => trigram.name === name);
+  const relationRows = [
+    { stage: "現在", role: "用卦", name: h.useTrigramName },
+    { stage: "過程", role: "互卦下卦", name: h.mutualLowerTrigramName },
+    { stage: "過程", role: "互卦上卦", name: h.mutualUpperTrigramName },
+    { stage: "後續", role: "變化後用卦", name: h.changedUseTrigramName }
+  ];
+  const imageryRows = [
+    { role: "主體", name: h.bodyTrigramName },
+    ...relationRows.map((row) => ({ role: `${row.stage}・${row.role}`, name: row.name }))
+  ];
   const cards = [
     { at: 1, title: "起卦數字與時間地支", body: <p>第一數 {focused.n1}，第二數 {focused.n2}，時間地支 {h.timeBranchName}={h.timeBranchNum}</p> },
     { at: 2, title: "第一數 mod 8", body: <PracticeCheck label={`${focused.n1} mod 8（0 作 8）`} answer={h.upperTrigramNum} /> },
@@ -1336,11 +1383,11 @@ function PracticePanel({ snapshot, participant }: { snapshot: CloudSnapshot; par
     { at: 7, title: "體卦與用卦", body: <p>體卦：{h.bodyTrigramName}；用卦：{h.useTrigramName}</p> },
     { at: 8, title: "五行生剋", body: <p>體 {h.bodyElement}、用 {h.useElement}，{h.elementRelation}</p> },
     { at: 9, title: "本卦、變卦、互卦", body: <HexMini hex={h} /> },
-    { at: 10, title: "卦辭、爻辭", body: <div className="muted">卦辭、爻辭資料庫尚未接入；目前先保留教學位置。</div> },
-    { at: 11, title: "體用與五行分析", body: <div className="bonus-box">先判斷主體是被生、被剋、比和，還是主體去生/剋外在。</div> },
-    { at: 12, title: "變卦與體卦分析", body: <div className="bonus-box">看動爻造成哪一卦變化，變卦用來描述結果趨勢。</div> },
-    { at: 13, title: "互卦綜合", body: <div className="bonus-box">互卦補充中間過程與內在壓力，再合併體用與變卦。</div> },
-    { at: 14, title: "回顧真卦 GPT response", body: <div className="bonus-box">請回顧真卦 My GPT response；若本機資料消失，請回自己的 My GPT 查看。</div> }
+    { at: 10, title: "第一層：卦辭、爻辭", body: <div className="bonus-box">先查「{h.hexagramName}」卦辭與第 {h.movingLine} 爻爻辭。分清楚經文原文、白話翻譯，以及它和本次問題的可能對應；資料庫尚未接入網站，課堂上由講者或 GPT B 的參考資料庫補充。</div> },
+    { at: 11, title: "第二層：五行生剋", body: <div className="practice-stack compact">{relationRows.map((row) => <div className="bonus-box" key={`${row.role}:${row.name}`}><strong>{row.stage}・{row.role}</strong>：{row.name}對體卦{h.bodyTrigramName}，關係為「{relationForTrigrams(h.bodyTrigramName, row.name)}」。</div>)}</div> },
+    { at: 12, title: "第三層：八卦應象", body: <div className="practice-stack compact">{imageryRows.map((row) => { const info = trigramInfo(row.name); return <div className="bonus-box" key={`${row.role}:${row.name}`}><strong>{row.role}・{row.name}</strong>：{info?.nature}；可從「{info?.keywords}」延伸物象、人物、行為、空間與節奏，再回到實際問題核對。</div>; })}</div> },
+    { at: 13, title: "第四層：綜合分析", body: <div className="bonus-box">依「經文線索 → 五行作用方向 → 八卦應象」整合成一條故事：本卦描述現在，兩個互卦補充過程，變化後用卦描述後續。必須把使用者已知事實、卦象推論與一般建議分開。</div> },
+    { at: 14, title: "揭曉後與 GPT B 深入討論", body: <div className="bonus-box">先完成三盲評分。揭曉頁會標出真卦並產生只存在本機的 GPT B prompt，讓你用完整問題繼續核對、追問與修正解讀。</div> }
   ];
   return (
     <section className="panel-card">

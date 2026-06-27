@@ -94,6 +94,12 @@ function relation(body: string, use: string) {
   return "未知關係";
 }
 
+export function relationForTrigrams(bodyName: TrigramName, useName: TrigramName) {
+  const body = Object.values(TRIGRAMS).find((trigram) => trigram.name === bodyName);
+  const use = Object.values(TRIGRAMS).find((trigram) => trigram.name === useName);
+  return body && use ? relation(body.element, use.element) : "未知關係";
+}
+
 function mutual(lines: number[]) {
   const lower = linesToNum([lines[1], lines[2], lines[3]]);
   const upper = linesToNum([lines[2], lines[3], lines[4]]);
