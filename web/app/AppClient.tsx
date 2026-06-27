@@ -192,6 +192,20 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function preserveLocalSweepBoards(remote: CloudSnapshot) {
+  const local = loadCloud();
+  const localBoards = new Map(
+    local.sweeps
+      .filter((sweep) => sweep.boardItems?.length)
+      .map((sweep) => [`${sweep.roundId}:${sweep.participantId}`, sweep.boardItems] as const)
+  );
+  remote.sweeps = remote.sweeps.map((sweep) => ({
+    ...sweep,
+    boardItems: localBoards.get(`${sweep.roundId}:${sweep.participantId}`) || sweep.boardItems
+  }));
+  return remote;
+}
+
 function now() {
   return new Date().toISOString();
 }
@@ -240,6 +254,7 @@ function useExperimentState(mode: "participant" | "admin" = "participant") {
   const snapshotJsonRef = useRef("");
   const pendingWritesRef = useRef(0);
   const localMutationVersionRef = useRef(0);
+  const remoteSyncInFlightRef = useRef(false);
 
   const setCloudSnapshot = (next: CloudSnapshot, persistLocal = true) => {
     const json = JSON.stringify(next);
@@ -258,6 +273,7 @@ function useExperimentState(mode: "participant" | "admin" = "participant") {
 
     let active = true;
     const startedVersion = localMutationVersionRef.current;
+    remoteSyncInFlightRef.current = true;
     void fetchRemoteCloud(person.id).then((remote) => {
       if (!active) return;
       if (!remote) {
@@ -265,12 +281,14 @@ function useExperimentState(mode: "participant" | "admin" = "participant") {
         return;
       }
       if (pendingWritesRef.current > 0 || startedVersion !== localMutationVersionRef.current) return;
-      const merged = clone(remote);
+      const merged = preserveLocalSweepBoards(clone(remote));
       const existing = merged.participants.find((p) => p.id === person.id);
       if (!existing) merged.participants.push(person);
       else if (!existing.recoveryCode) existing.recoveryCode = person.recoveryCode;
       setCloudSnapshot(merged);
       if (mode === "admin") setSyncState("synced");
+    }).finally(() => {
+      remoteSyncInFlightRef.current = false;
     });
 
     return () => {
@@ -291,26 +309,31 @@ function useExperimentState(mode: "participant" | "admin" = "participant") {
     if (!participant) return;
     let active = true;
     const syncRemote = async () => {
-      if (pendingWritesRef.current > 0) return;
+      if (pendingWritesRef.current > 0 || remoteSyncInFlightRef.current) return;
       const startedVersion = localMutationVersionRef.current;
-      const remote = await fetchRemoteCloud(participant.id);
-      if (!active) return;
-      if (!remote) {
-        if (mode === "admin") setSyncState("error");
-        return;
+      remoteSyncInFlightRef.current = true;
+      try {
+        const remote = await fetchRemoteCloud(participant.id);
+        if (!active) return;
+        if (!remote) {
+          if (mode === "admin") setSyncState("error");
+          return;
+        }
+        if (pendingWritesRef.current > 0 || startedVersion !== localMutationVersionRef.current) return;
+        const merged = preserveLocalSweepBoards(clone(remote));
+        const localParticipant = loadParticipant();
+        if (localParticipant) {
+          const existing = merged.participants.find((p) => p.id === localParticipant.id);
+          if (!existing) merged.participants.push(localParticipant);
+          else if (!existing.recoveryCode) existing.recoveryCode = localParticipant.recoveryCode;
+        }
+        setCloudSnapshot(merged);
+        if (mode === "admin") setSyncState("synced");
+      } finally {
+        remoteSyncInFlightRef.current = false;
       }
-      if (pendingWritesRef.current > 0 || startedVersion !== localMutationVersionRef.current) return;
-      const merged = clone(remote);
-      const localParticipant = loadParticipant();
-      if (localParticipant) {
-        const existing = merged.participants.find((p) => p.id === localParticipant.id);
-        if (!existing) merged.participants.push(localParticipant);
-        else if (!existing.recoveryCode) existing.recoveryCode = localParticipant.recoveryCode;
-      }
-      setCloudSnapshot(merged);
-      if (mode === "admin") setSyncState("synced");
     };
-    const timer = window.setInterval(syncRemote, 2000);
+    const timer = window.setInterval(syncRemote, 3000);
     void syncRemote();
     return () => {
       active = false;
@@ -1709,7 +1732,7 @@ function ParticipantShell() {
       setParticipant(found);
       const remote = await fetchRemoteCloud(found.id);
       if (remote) {
-        saveCloudLocal(remote);
+        saveCloudLocal(preserveLocalSweepBoards(remote));
         setPage(remote.event.currentStage);
       }
       return;

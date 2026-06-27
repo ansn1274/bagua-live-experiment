@@ -274,29 +274,48 @@ export function getSnapshotClient(): SupabaseClient | null {
 }
 
 export async function readSnapshot(client: SupabaseClient): Promise<CloudSnapshot> {
-  const { data, error } = await client
-    .from("app_state")
-    .select("snapshot")
-    .eq("key", STATE_KEY)
-    .maybeSingle();
-  if (error) throw error;
-  return normalizeSnapshot((data?.snapshot || emptySnapshot()) as CloudSnapshot);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const { data, error } = await client
+      .from("app_state")
+      .select("snapshot")
+      .eq("key", STATE_KEY)
+      .abortSignal(controller.signal)
+      .maybeSingle();
+    if (error) throw error;
+    return normalizeSnapshot((data?.snapshot || emptySnapshot()) as CloudSnapshot);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function writeSnapshot(client: SupabaseClient, incoming: CloudSnapshot, mode: "participant" | "admin" = "participant") {
   const existing = await readSnapshot(client);
-  const merged = mergeSnapshots(existing, normalizeSnapshot(incoming), mode);
-  const { error } = await client
-    .from("app_state")
-    .upsert({ key: STATE_KEY, snapshot: merged, updated_at: new Date().toISOString() }, { onConflict: "key" });
-  if (error) throw error;
-  return merged;
+  const merged = compactSnapshot(mergeSnapshots(existing, normalizeSnapshot(incoming), mode));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const { error } = await client
+      .from("app_state")
+      .upsert({ key: STATE_KEY, snapshot: merged, updated_at: new Date().toISOString() }, { onConflict: "key" })
+      .abortSignal(controller.signal);
+    if (error) throw error;
+    return merged;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function sanitizeSnapshot(snapshot: CloudSnapshot, participantId?: string | null): CloudSnapshot {
-  const copy = normalizeSnapshot(JSON.parse(JSON.stringify(snapshot)) as CloudSnapshot);
+  const copy = compactSnapshot(normalizeSnapshot(JSON.parse(JSON.stringify(snapshot)) as CloudSnapshot));
   copy.participants = copy.participants.map((p) => p.id === participantId ? p : { ...p, recoveryCode: "" });
   return copy;
+}
+
+function compactSnapshot(snapshot: CloudSnapshot): CloudSnapshot {
+  snapshot.sweeps = snapshot.sweeps.map((sweep) => ({ ...sweep, boardItems: undefined }));
+  return snapshot;
 }
 
 export function findParticipantByRecovery(snapshot: CloudSnapshot, codeOrId: string): Participant | null {

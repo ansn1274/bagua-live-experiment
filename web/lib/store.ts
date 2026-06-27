@@ -424,13 +424,17 @@ function queueRemoteCloudSave(snapshot: CloudSnapshot) {
 }
 
 function cloneForRemote(snapshot: CloudSnapshot): CloudSnapshot {
-  return JSON.parse(JSON.stringify(snapshot)) as CloudSnapshot;
+  const copy = JSON.parse(JSON.stringify(snapshot)) as CloudSnapshot;
+  copy.sweeps = copy.sweeps.map((sweep) => ({ ...sweep, boardItems: undefined }));
+  return copy;
 }
 
 export async function fetchRemoteCloud(participantId?: string): Promise<CloudSnapshot | null> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 10000);
   try {
     const suffix = participantId ? `?pid=${encodeURIComponent(participantId)}` : "";
-    const res = await fetch(`/api/snapshot${suffix}`, { cache: "no-store" });
+    const res = await fetch(`/api/snapshot${suffix}`, { cache: "no-store", signal: controller.signal });
     if (!res.ok) return null;
     const json = await res.json() as { ok?: boolean; snapshot?: CloudSnapshot };
     if (!json.ok) return null;
@@ -438,21 +442,28 @@ export async function fetchRemoteCloud(participantId?: string): Promise<CloudSna
     return normalizeCloud(json.snapshot);
   } catch {
     return null;
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 
 export async function pushRemoteCloud(snapshot: CloudSnapshot, mode: "participant" | "admin" = "participant") {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 12000);
   try {
     const res = await fetch("/api/snapshot", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ snapshot, mode })
+      body: JSON.stringify({ snapshot, mode }),
+      signal: controller.signal
     });
     const json = await res.json() as { ok?: boolean };
     return res.ok && json.ok === true;
   } catch {
     // Local-first: a failed remote sync must not break the on-site flow.
     return false;
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 
