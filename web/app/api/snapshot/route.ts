@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSnapshotClient, readSnapshot, sanitizeSnapshot, writeSnapshot } from "../../../lib/serverSnapshot";
+import { getSnapshotClient, readSnapshot, readSnapshotVersion, sanitizeSnapshot, writeSnapshot } from "../../../lib/serverSnapshot";
 import type { CloudSnapshot } from "../../../lib/types";
 
 export const runtime = "nodejs";
@@ -12,8 +12,13 @@ export async function GET(request: NextRequest) {
 
   try {
     const participantId = request.nextUrl.searchParams.get("pid");
+    const knownVersion = request.nextUrl.searchParams.get("version");
+    const version = await readSnapshotVersion(client);
+    if (knownVersion && knownVersion === version) {
+      return NextResponse.json({ ok: true, unchanged: true, version });
+    }
     const snapshot = await readSnapshot(client);
-    return NextResponse.json({ ok: true, snapshot: sanitizeSnapshot(snapshot, participantId) });
+    return NextResponse.json({ ok: true, snapshot: sanitizeSnapshot(snapshot, participantId), version });
   } catch (error) {
     return NextResponse.json({ ok: false, reason: "snapshot_read_failed", detail: String(error) }, { status: 500 });
   }
@@ -30,8 +35,8 @@ export async function POST(request: NextRequest) {
     if (!body.snapshot) {
       return NextResponse.json({ ok: false, reason: "missing_snapshot" }, { status: 400 });
     }
-    const snapshot = await writeSnapshot(client, body.snapshot, body.mode === "admin" ? "admin" : "participant");
-    return NextResponse.json({ ok: true, snapshot: sanitizeSnapshot(snapshot) });
+    await writeSnapshot(client, body.snapshot, body.mode === "admin" ? "admin" : "participant");
+    return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ ok: false, reason: "snapshot_write_failed", detail: String(error) }, { status: 500 });
   }

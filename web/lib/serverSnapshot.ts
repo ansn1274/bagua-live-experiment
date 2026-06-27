@@ -290,6 +290,23 @@ export async function readSnapshot(client: SupabaseClient, timeoutMs = 10000): P
   }
 }
 
+export async function readSnapshotVersion(client: SupabaseClient, timeoutMs = 6000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const { data, error } = await client
+      .from("app_state")
+      .select("updated_at")
+      .eq("key", STATE_KEY)
+      .abortSignal(controller.signal)
+      .maybeSingle();
+    if (error) throw error;
+    return typeof data?.updated_at === "string" ? data.updated_at : EVENT_EPOCH;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function writeSnapshot(client: SupabaseClient, incoming: CloudSnapshot, mode: "participant" | "admin" = "participant") {
   const existing = await readSnapshot(client);
   const merged = compactSnapshot(mergeSnapshots(existing, normalizeSnapshot(incoming), mode));
@@ -309,7 +326,28 @@ export async function writeSnapshot(client: SupabaseClient, incoming: CloudSnaps
 
 export function sanitizeSnapshot(snapshot: CloudSnapshot, participantId?: string | null): CloudSnapshot {
   const copy = compactSnapshot(normalizeSnapshot(JSON.parse(JSON.stringify(snapshot)) as CloudSnapshot));
+  copy.publicMetrics = {
+    participantCount: copy.participants.length,
+    sweepCount: copy.sweeps.length,
+    quizScoreCount: copy.quizScores.length,
+    ratingParticipantCount: new Set(copy.ratings.map((rating) => rating.participantId)).size,
+    quizJoinedCount: copy.quizSession
+      ? new Set(copy.quizAnswers.filter((answer) => answer.sessionId === copy.quizSession?.id && answer.questionIndex === -1).map((answer) => answer.participantId)).size
+      : 0
+  };
   copy.participants = copy.participants.map((p) => p.id === participantId ? p : { ...p, recoveryCode: "" });
+  if (participantId) {
+    copy.participants = copy.participants.filter((participant) => participant.id === participantId);
+    copy.stagePresets = [];
+    copy.sweeps = copy.sweeps.filter((sweep) => sweep.participantId === participantId);
+    copy.randomSources = copy.randomSources.filter((source) => source.participantId === participantId);
+    copy.blindMappings = copy.blindMappings.filter((mapping) => mapping.participantId === participantId);
+    copy.quizScores = copy.quizScores.filter((score) => score.participantId === participantId);
+    copy.quizAnswers = copy.quizAnswers.filter((answer) => answer.participantId === participantId);
+    copy.sessionVisits = copy.sessionVisits.filter((visit) => visit.participantId === participantId);
+    copy.ratings = copy.ratings.filter((rating) => rating.participantId === participantId);
+    copy.parses = copy.parses.filter((parse) => parse.participantId === participantId);
+  }
   return copy;
 }
 

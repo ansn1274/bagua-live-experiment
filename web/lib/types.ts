@@ -289,4 +289,11 @@ export type CloudSnapshot = {
   sessionVisits: SessionVisit[];
   ratings: RatingSummary[];
   parses: ParseSummary[];
+  publicMetrics?: {
+    participantCount: number;
+    sweepCount: number;
+    quizScoreCount: number;
+    ratingParticipantCount: number;
+    quizJoinedCount: number;
+  };
 };

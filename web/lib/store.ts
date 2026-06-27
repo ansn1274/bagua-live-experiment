@@ -429,19 +429,30 @@ function cloneForRemote(snapshot: CloudSnapshot): CloudSnapshot {
   return copy;
 }
 
-export async function fetchRemoteCloud(participantId?: string): Promise<CloudSnapshot | null> {
+export type RemoteCloudResult = {
+  ok: boolean;
+  unchanged: boolean;
+  version?: string;
+  snapshot?: CloudSnapshot;
+};
+
+export async function fetchRemoteCloud(participantId?: string, knownVersion?: string): Promise<RemoteCloudResult> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 10000);
   try {
-    const suffix = participantId ? `?pid=${encodeURIComponent(participantId)}` : "";
+    const params = new URLSearchParams();
+    if (participantId) params.set("pid", participantId);
+    if (knownVersion) params.set("version", knownVersion);
+    const suffix = params.size ? `?${params.toString()}` : "";
     const res = await fetch(`/api/snapshot${suffix}`, { cache: "no-store", signal: controller.signal });
-    if (!res.ok) return null;
-    const json = await res.json() as { ok?: boolean; snapshot?: CloudSnapshot };
-    if (!json.ok) return null;
-    if (!json.snapshot) return null;
-    return normalizeCloud(json.snapshot);
+    if (!res.ok) return { ok: false, unchanged: false };
+    const json = await res.json() as { ok?: boolean; unchanged?: boolean; version?: string; snapshot?: CloudSnapshot };
+    if (!json.ok) return { ok: false, unchanged: false };
+    if (json.unchanged) return { ok: true, unchanged: true, version: json.version };
+    if (!json.snapshot) return { ok: false, unchanged: false };
+    return { ok: true, unchanged: false, version: json.version, snapshot: normalizeCloud(json.snapshot) };
   } catch {
-    return null;
+    return { ok: false, unchanged: false };
   } finally {
     window.clearTimeout(timeout);
   }

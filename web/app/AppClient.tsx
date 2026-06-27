@@ -246,6 +246,11 @@ function currentPageAllowed(snapshot: CloudSnapshot, page: StageKey) {
   return page === "welcome" || snapshot.event.allowedPages.includes(page);
 }
 
+function quizJoinedCount(snapshot: CloudSnapshot, sessionId: string) {
+  return snapshot.publicMetrics?.quizJoinedCount
+    ?? new Set(snapshot.quizAnswers.filter((answer) => answer.sessionId === sessionId && answer.questionIndex === -1).map((answer) => answer.participantId)).size;
+}
+
 function useExperimentState(mode: "participant" | "admin" = "participant") {
   const [snapshot, setSnapshot] = useState<CloudSnapshot>(() => createEmptyCloud());
   const [participant, setParticipant] = useState<Participant | null>(null);
@@ -255,6 +260,7 @@ function useExperimentState(mode: "participant" | "admin" = "participant") {
   const pendingWritesRef = useRef(0);
   const localMutationVersionRef = useRef(0);
   const remoteSyncInFlightRef = useRef(false);
+  const serverVersionRef = useRef<string | undefined>(undefined);
 
   const setCloudSnapshot = (next: CloudSnapshot, persistLocal = true) => {
     const json = JSON.stringify(next);
@@ -274,14 +280,17 @@ function useExperimentState(mode: "participant" | "admin" = "participant") {
     let active = true;
     const startedVersion = localMutationVersionRef.current;
     remoteSyncInFlightRef.current = true;
-    void fetchRemoteCloud(person.id).then((remote) => {
+    const remoteParticipantId = mode === "admin" ? undefined : person.id;
+    void fetchRemoteCloud(remoteParticipantId).then((result) => {
       if (!active) return;
-      if (!remote) {
+      if (!result.ok) {
         if (mode === "admin") setSyncState("error");
         return;
       }
+      if (result.version) serverVersionRef.current = result.version;
+      if (result.unchanged || !result.snapshot) return;
       if (pendingWritesRef.current > 0 || startedVersion !== localMutationVersionRef.current) return;
-      const merged = preserveLocalSweepBoards(clone(remote));
+      const merged = preserveLocalSweepBoards(clone(result.snapshot));
       const existing = merged.participants.find((p) => p.id === person.id);
       if (!existing) merged.participants.push(person);
       else if (!existing.recoveryCode) existing.recoveryCode = person.recoveryCode;
@@ -313,14 +322,20 @@ function useExperimentState(mode: "participant" | "admin" = "participant") {
       const startedVersion = localMutationVersionRef.current;
       remoteSyncInFlightRef.current = true;
       try {
-        const remote = await fetchRemoteCloud(participant.id);
+        const remoteParticipantId = mode === "admin" ? undefined : participant.id;
+        const result = await fetchRemoteCloud(remoteParticipantId, serverVersionRef.current);
         if (!active) return;
-        if (!remote) {
+        if (!result.ok) {
           if (mode === "admin") setSyncState("error");
           return;
         }
+        if (result.version) serverVersionRef.current = result.version;
+        if (result.unchanged || !result.snapshot) {
+          if (mode === "admin") setSyncState("synced");
+          return;
+        }
         if (pendingWritesRef.current > 0 || startedVersion !== localMutationVersionRef.current) return;
-        const merged = preserveLocalSweepBoards(clone(remote));
+        const merged = preserveLocalSweepBoards(clone(result.snapshot));
         const localParticipant = loadParticipant();
         if (localParticipant) {
           const existing = merged.participants.find((p) => p.id === localParticipant.id);
@@ -333,7 +348,7 @@ function useExperimentState(mode: "participant" | "admin" = "participant") {
         remoteSyncInFlightRef.current = false;
       }
     };
-    const timer = window.setInterval(syncRemote, 3000);
+    const timer = window.setInterval(syncRemote, 4000);
     void syncRemote();
     return () => {
       active = false;
@@ -1006,7 +1021,7 @@ function QuizPanel({ snapshot, participant, updateCloud }: {
       {!session && <p className="warn">等待講者建立本輪測驗。</p>}
       {session && !session.started && (
         <div className="quiz-lobby">
-          <p className="status-line">等待講者開始，目前 {snapshot.quizAnswers.filter((a) => a.sessionId === session.id && a.questionIndex === -1).length} 人加入。</p>
+          <p className="status-line">等待講者開始，目前 {quizJoinedCount(snapshot, session.id)} 人加入。</p>
           <div className="inline-form">
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="排行榜姓名 / 暱稱" />
             <button disabled={!participant || !name.trim()} onClick={() => {
@@ -1730,10 +1745,10 @@ function ParticipantShell() {
     if (found) {
       saveParticipant(found);
       setParticipant(found);
-      const remote = await fetchRemoteCloud(found.id);
-      if (remote) {
-        saveCloudLocal(preserveLocalSweepBoards(remote));
-        setPage(remote.event.currentStage);
+      const result = await fetchRemoteCloud(found.id);
+      if (result.ok && result.snapshot) {
+        saveCloudLocal(preserveLocalSweepBoards(result.snapshot));
+        setPage(result.snapshot.event.currentStage);
       }
       return;
     }
@@ -1852,10 +1867,10 @@ function ScreenPanel({ snapshot }: { snapshot: CloudSnapshot }) {
       <section className="panel-card">
         <h2>全場進度</h2>
         <div className="metric-row">
-          <Metric label="匿名參與者" value={`${snapshot.participants.length}`} />
-          <Metric label="掃地完成" value={`${snapshot.sweeps.length}`} />
-          <Metric label="測驗完成" value={`${snapshot.quizScores.length}`} />
-          <Metric label="評分完成" value={`${new Set(snapshot.ratings.map((r) => r.participantId)).size}`} />
+          <Metric label="匿名參與者" value={`${snapshot.publicMetrics?.participantCount ?? snapshot.participants.length}`} />
+          <Metric label="掃地完成" value={`${snapshot.publicMetrics?.sweepCount ?? snapshot.sweeps.length}`} />
+          <Metric label="測驗完成" value={`${snapshot.publicMetrics?.quizScoreCount ?? snapshot.quizScores.length}`} />
+          <Metric label="評分完成" value={`${snapshot.publicMetrics?.ratingParticipantCount ?? new Set(snapshot.ratings.map((r) => r.participantId)).size}`} />
         </div>
       </section>
       <section className="panel-card wide">
