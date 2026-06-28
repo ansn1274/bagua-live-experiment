@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "data:zhouyi": "node ../scripts/fetch-zhouyi.mjs",
     "data:zhouyi:browser": "node ../scripts/fetch-zhouyi.mjs --from-browser",
-    "data:zhouyi:md": "node ../scripts/export-zhouyi-markdown.mjs"
+    "data:zhouyi:md": "node ../scripts/export-zhouyi-markdown.mjs",
+    "data:zhouyi:combine": "node ../scripts/combine-zhouyi-markdown.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",
