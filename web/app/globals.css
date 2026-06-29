@@ -68,6 +68,25 @@ button {
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
 }
 
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.42rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.62rem 0.82rem;
+  color: var(--ink);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button-link:hover {
+  border-color: var(--seal);
+  color: var(--seal);
+  transform: translateY(-1px);
+}
+
 button:hover:not(:disabled) {
   border-color: var(--seal);
   color: var(--seal);
@@ -82,6 +101,10 @@ button.selected, .primary {
   color: #fffaf0;
   font-weight: 800;
   box-shadow: 0 8px 18px rgba(164, 58, 47, 0.24);
+}
+
+.button-link.primary:hover {
+  color: #fffaf0;
 }
 
 button.danger {

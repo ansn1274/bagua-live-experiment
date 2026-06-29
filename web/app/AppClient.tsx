@@ -8,6 +8,7 @@ import {
   Check,
   Copy,
   Eye,
+  ExternalLink,
   Send,
   ShieldCheck,
   Sparkles,
@@ -80,6 +81,8 @@ import type {
 type AdminTab = "session" | "qa" | "wordcloud" | "sweep" | "quiz" | "stats" | "export";
 
 const SOURCE_ORDER: SourceType[] = ["sweep_random", "focused_true", "distracted_random"];
+const GPT_A_URL = "https://chatgpt.com/g/g-6a3bf3ded1848191acb366ed7aacde3b-mei-hua-yi-shu-jie-gua-ce-shi";
+const GPT_B_URL = "https://chatgpt.com/g/g-6a427b3103dc8191a1cfaa1c62c24f8f-mei-hua-yi-shu-fen-xi-yu-tao-lun";
 const CASTING_DOMAINS = [
   "事業",
   "創業",
@@ -1122,6 +1125,10 @@ function PromptPanel({ snapshot, participant, privateData, updateCloud, updatePr
       <textarea value={prompt} readOnly rows={16} />
       <div className="actions">
         <button disabled={!ready} onClick={() => void copyText(prompt).then(() => setMessage("Prompt 已複製。")).catch(() => setMessage("複製失敗，請手動全選複製。"))}>複製 prompt</button>
+        <a className="button-link primary" href={GPT_A_URL} target="_blank" rel="noopener noreferrer">
+          <ExternalLink size={17} />
+          開啟 GPT A
+        </a>
         <button disabled={!hasAllSources || !participant || mappings.length === 3} onClick={() => {
           if (!participant) return;
           updateCloud((draft) => ensureBlindMappings(draft, participant.id, roundId));
@@ -1335,6 +1342,10 @@ function RevealPanel({ snapshot, participant, privateData }: {
           <button className="primary" disabled={!gptBPrompt} onClick={() => void copyText(gptBPrompt).then(() => setCopyMessage("GPT B prompt 已複製。")).catch(() => setCopyMessage("複製失敗，請手動全選複製。"))}>
             複製給 GPT B 的討論 Prompt
           </button>
+          <a className="button-link primary" href={GPT_B_URL} target="_blank" rel="noopener noreferrer">
+            <ExternalLink size={17} />
+            開啟 GPT B
+          </a>
         </div>
         {copyMessage && <p className={copyMessage.includes("失敗") ? "warn" : "status-line"}>{copyMessage}</p>}
       </div>
